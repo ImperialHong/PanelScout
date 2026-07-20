@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.5
+Version: 0.6
 
 Date: 2026-07-20
 
@@ -304,7 +304,7 @@ Pause on expiration, CAPTCHA, 403, 429, or policy uncertainty
 - Config file. Status: baseline completed in Unit 1.
 - SQLite database. Status: baseline completed in Unit 2.
 - `search` command. Status: placeholder completed in Unit 1; real metadata search pending.
-- List/search page parsing. Status: pending.
+- List/search page parsing. Status: baseline completed in Unit 4.
 - Basic export. Status: baseline completed in Unit 3.
 
 Unit 1 accepted scope:
@@ -533,6 +533,36 @@ Validation summary:
 - `unittest discover` passed with 20 tests.
 - `compileall` passed for `src` and `tests`.
 - No network, crawler, parser, login, or downloader behavior was introduced.
+
+### Unit 4: Anonymous Metadata Parser Fixtures and Parser
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/adapters/zaimanhua.py`
+- `src/panelscout/parsers/__init__.py`
+- `src/panelscout/parsers/zaimanhua.py`
+- `tests/test_zaimanhua_parser.py`
+- `tests/fixtures/zaimanhua/search_weisample.html`
+- `tests/fixtures/zaimanhua/details_15599.html`
+- `tests/fixtures/zaimanhua/robots.txt`
+
+Validation summary:
+
+- Search/list parsing extracts public metadata into `Comic` records.
+- Known public fixture record validated: `伪恋同盟`, source comic id `15599`, author `榊葵/绫乃`, latest chapter `第112话`.
+- Detail-page parsing extracts SEO metadata and returns an empty chapter list for the current unavailable/down fixture.
+- URL helpers build search/detail URLs and normalize public source URLs.
+- Fixtures are compact and local-only; no cookies, credentials, or large raw Nuxt dumps are committed.
+- Unit 4 parser tests passed with 3 tests.
+- Full `unittest discover` passed with 23 tests.
+- `compileall` passed for `src` and `tests`.
+- No network, fetcher, crawler, login, or downloader behavior was introduced.
 
 ## 16. Open Questions
 

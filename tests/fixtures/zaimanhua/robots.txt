@@ -1,0 +1,243 @@
+# robots.txt for 再漫画日漫站 (manhua.zaimanhua.com)
+# https://www.robotstxt.org/robotstxt.html
+# 最后更新: 2026-05-20
+
+# ===========================================
+# 默认规则 - 允许所有搜索引擎
+# ===========================================
+User-agent: *
+
+# 允许抓取的主要内容页面
+Allow: /
+Allow: /index
+Allow: /details/
+Allow: /detail/
+Allow: /view/
+Allow: /view2/
+Allow: /newauthor/
+Allow: /update/
+Allow: /dynamic/
+Allow: /teenage-list/
+Allow: /disclaimer/
+Allow: /info/
+
+# 禁止抓取 - 用户私有页面
+Disallow: /dingyue/
+
+# 禁止抓取 - 预览和测试页面
+Disallow: /localpriviews/
+Disallow: /priviews/
+
+# 禁止抓取 - API 路径
+Disallow: /api/
+Disallow: /app/
+Disallow: /ipi/
+Disallow: /tpi/
+Disallow: /cpi/
+Disallow: /npi/
+Disallow: /newpi/
+Disallow: /lpi/
+
+# 禁止抓取 - 静态资源和系统文件
+Disallow: /fridge-account/
+Disallow: /_nuxt/
+Disallow: /*.json$
+Disallow: /*.js$
+Disallow: /*.css$
+
+# 抓取延迟（秒）- 保护服务器
+Crawl-delay: 1
+
+# ===========================================
+# 百度蜘蛛 - 中国主要搜索引擎
+# ===========================================
+User-agent: Baiduspider
+Allow: /
+Allow: /details/
+Allow: /view/
+Allow: /rank/
+Allow: /update/
+Allow: /tags/
+Allow: /author/
+Allow: /info/
+Disallow: /dingyue/
+Disallow: /uploads/
+Disallow: /uploadShows/
+Disallow: /localpriviews/
+Disallow: /priviews/
+Disallow: /api/
+Crawl-delay: 1
+
+# ===========================================
+# 百度图片蜘蛛
+# ===========================================
+User-agent: Baiduspider-image
+Allow: /
+Crawl-delay: 2
+
+# ===========================================
+# 谷歌蜘蛛
+# ===========================================
+User-agent: Googlebot
+Allow: /
+Allow: /details/
+Allow: /view/
+Allow: /rank/
+Allow: /update/
+Allow: /author/
+Allow: /info/
+Disallow: /dingyue/
+Disallow: /uploadShows/
+Disallow: /localpriviews/
+Disallow: /priviews/
+Disallow: /api/
+Crawl-delay: 1
+
+# ===========================================
+# 谷歌图片蜘蛛
+# ===========================================
+User-agent: Googlebot-Image
+Allow: /
+Crawl-delay: 2
+
+# ===========================================
+# 必应蜘蛛
+# ===========================================
+User-agent: Bingbot
+Allow: /
+Allow: /details/
+Allow: /view/
+Allow: /update/
+Allow: /tags/
+Allow: /info/
+Disallow: /dingyue/
+Disallow: /uploadShows/
+Disallow: /localpriviews/
+Disallow: /priviews/
+Disallow: /api/
+Crawl-delay: 1
+
+# ===========================================
+# 搜狗蜘蛛
+# ===========================================
+User-agent: Sogou web spider
+Allow: /
+Allow: /details/
+Allow: /view/
+Allow: /update/
+Allow: /tags/
+Allow: /author/
+Allow: /info/
+Disallow: /dingyue/
+Disallow: /uploads/
+Disallow: /uploadShows/
+Disallow: /localpriviews/
+Disallow: /priviews/
+Disallow: /api/
+Crawl-delay: 1
+
+# ===========================================
+# 360蜘蛛
+# ===========================================
+User-agent: 360Spider
+Allow: /
+Allow: /details/
+Allow: /view/
+Allow: /update/
+Allow: /tags/
+Allow: /author/
+Allow: /info/
+Disallow: /dingyue/
+Disallow: /uploadShows/
+Disallow: /localpriviews/
+Disallow: /priviews/
+Disallow: /api/
+Crawl-delay: 1
+
+# ===========================================
+# 神马搜索蜘蛛（移动端）
+# ===========================================
+User-agent: YisouSpider
+Allow: /
+Allow: /details/
+Allow: /view/
+Allow: /update/
+Allow: /tags/
+Allow: /author/
+Allow: /info/
+Disallow: /dingyue/
+Disallow: /uploadShows/
+Disallow: /api/
+Crawl-delay: 1
+
+# ===========================================
+# 头条搜索蜘蛛
+# ===========================================
+User-agent: Bytespider
+Allow: /
+Allow: /details/
+Allow: /view/
+Allow: /update/
+Allow: /tags/
+Allow: /author/
+Allow: /info/
+Disallow: /dingyue/
+Disallow: /uploads/
+Disallow: /uploadShows/
+Disallow: /api/
+Crawl-delay: 2
+
+# ===========================================
+# 禁止恶意爬虫和SEO分析工具
+# ===========================================
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: BLEXBot
+Disallow: /
+
+User-agent: DataForSeoBot
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+User-agent: Amazonbot
+Disallow: /
+
+# ===========================================
+# AI 爬虫（可根据需要调整）
+# ===========================================
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+# ===========================================
+# 站点地图
+# ===========================================
+Sitemap: https://manhua.zaimanhua.com/sitemap.xml
+
+# ===========================================
+# Host 声明（可选，部分搜索引擎支持）
+# ===========================================
+Host: https://manhua.zaimanhua.com
