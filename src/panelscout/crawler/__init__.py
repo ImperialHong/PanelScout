@@ -13,6 +13,7 @@ from panelscout.crawler.fetcher import (
     NonHtmlContentError,
 )
 from panelscout.crawler.engine import (
+    MetadataChange,
     PublicDetailSyncResult,
     PublicSearchResult,
     normalize_detail_reference,
@@ -32,6 +33,7 @@ __all__ = [
     "FetchHTTPError",
     "FetchedHtml",
     "HtmlFetcher",
+    "MetadataChange",
     "NonHtmlContentError",
     "PublicDetailSyncResult",
     "PublicSearchResult",

@@ -296,10 +296,27 @@ def _format_sync_result(result, *, saved: bool) -> str:
         [
             f"Chapters: {result.chapter_count}",
             f"New chapters: {result.new_chapter_count}",
+            f"Existing chapters: {result.existing_chapter_count}",
             f"Saved: {'yes' if saved else 'no (dry run)'}",
             "",
         ]
     )
+
+    if result.metadata_changes:
+        lines.append("Metadata changes:")
+        for change in result.metadata_changes:
+            lines.append(
+                f"- {_display_metadata_field(change.field)}: "
+                f"{_display_optional(change.previous)} -> {_display_optional(change.current)}"
+            )
+        lines.append("")
+
+    if result.new_chapters:
+        lines.append("New chapter details:")
+        for index, chapter in enumerate(result.new_chapters, start=1):
+            lines.append(f"{index}. {chapter.title}")
+            lines.append(f"   url: {chapter.chapter_url}")
+        lines.append("")
 
     if not result.chapters:
         lines.append("No visible chapters found.")
@@ -310,6 +327,20 @@ def _format_sync_result(result, *, saved: bool) -> str:
         lines.append(f"{index}. {chapter.title}")
         lines.append(f"   url: {chapter.chapter_url}")
     return "\n".join(lines)
+
+
+def _display_metadata_field(field: str) -> str:
+    labels = {
+        "title": "Title",
+        "author": "Author",
+        "status": "Status",
+        "latest_chapter_title": "Latest chapter",
+    }
+    return labels.get(field, field)
+
+
+def _display_optional(value: str | None) -> str:
+    return value if value else "(none)"
 
 
 def _handle_export(args: argparse.Namespace, config) -> int:

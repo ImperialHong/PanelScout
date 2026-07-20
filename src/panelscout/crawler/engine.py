@@ -6,7 +6,8 @@ pieces. They do not authenticate, run browsers, or download content.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -40,8 +41,20 @@ class PublicDetailSyncResult:
     detail_url: str
     comic: Comic
     chapters: tuple[Chapter, ...]
+    new_chapters: tuple[Chapter, ...]
+    metadata_changes: tuple[MetadataChange, ...]
     chapter_count: int
     new_chapter_count: int
+    existing_chapter_count: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class MetadataChange:
+    """One tracked metadata field change from the previous stored comic."""
+
+    field: str
+    previous: str | None
+    current: str | None
 
 
 def search_public_comics(
@@ -99,8 +112,17 @@ def sync_public_detail(
     _source_comic_id, detail_url = normalize_detail_reference(reference)
     response = fetcher.fetch_html(detail_url)
     parsed_detail = parse_detail_page(_response_text(response), detail_url=detail_url)
+    previous_comic = repository.get_comic_by_source(
+        parsed_detail.comic.source,
+        parsed_detail.comic.source_comic_id,
+    )
+    current_comic = replace(
+        parsed_detail.comic,
+        last_checked_at=_utc_now(),
+    )
+    metadata_changes = _comic_metadata_changes(previous_comic, current_comic)
 
-    stored_comic = repository.upsert_comic(parsed_detail.comic)
+    stored_comic = repository.upsert_comic(current_comic)
     if stored_comic.id is None:
         raise RuntimeError("Comic detail upsert did not return a stored id")
 
@@ -108,16 +130,22 @@ def sync_public_detail(
         _chapter_from_parsed(stored_comic.id, parsed_chapter)
         for parsed_chapter in _dedupe_chapters(parsed_detail.chapters)
     )
-    new_chapter_count = _count_new_chapters(repository, stored_comic.id, chapters)
+    new_chapter_urls = _new_chapter_urls(repository, stored_comic.id, chapters)
     stored_chapters = tuple(repository.upsert_chapters(chapters))
+    new_chapters = tuple(
+        chapter for chapter in stored_chapters if chapter.chapter_url in new_chapter_urls
+    )
 
     return PublicDetailSyncResult(
         reference=str(reference).strip(),
         detail_url=detail_url,
         comic=stored_comic,
         chapters=stored_chapters,
+        new_chapters=new_chapters,
+        metadata_changes=metadata_changes,
         chapter_count=len(stored_chapters),
-        new_chapter_count=new_chapter_count,
+        new_chapter_count=len(new_chapters),
+        existing_chapter_count=len(stored_chapters) - len(new_chapters),
     )
 
 
@@ -176,13 +204,36 @@ def _chapter_from_parsed(comic_id: int, parsed_chapter: ParsedChapter) -> Chapte
     )
 
 
-def _count_new_chapters(
+def _new_chapter_urls(
     repository: ComicRepository,
     comic_id: int,
     chapters: tuple[Chapter, ...],
-) -> int:
-    return sum(
-        1
+) -> set[str]:
+    return {
+        chapter.chapter_url
         for chapter in chapters
         if repository.get_chapter_by_url(comic_id, chapter.chapter_url) is None
-    )
+    }
+
+
+def _comic_metadata_changes(previous: Comic | None, current: Comic) -> tuple[MetadataChange, ...]:
+    if previous is None:
+        return ()
+
+    changes: list[MetadataChange] = []
+    for field in ("title", "author", "status", "latest_chapter_title"):
+        previous_value = getattr(previous, field)
+        current_value = getattr(current, field)
+        if previous_value != current_value:
+            changes.append(
+                MetadataChange(
+                    field=field,
+                    previous=previous_value,
+                    current=current_value,
+                )
+            )
+    return tuple(changes)
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat()

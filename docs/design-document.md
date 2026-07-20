@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.12
+Version: 0.13
 
 Date: 2026-07-20
 
@@ -324,7 +324,7 @@ Unit 1 accepted scope:
 - Detail page parsing. Status: baseline completed in Unit 8.
 - Chapter metadata parsing. Status: baseline completed in Unit 8 and exposed through CLI in Unit 9.
 - Comic and chapter upsert logic. Status: baseline completed in Unit 8.
-- Update detection. Status: baseline `new_chapter_count` completed in Unit 8; richer reports pending.
+- Update detection. Status: baseline `new_chapter_count` completed in Unit 8; richer chapter and metadata reports completed in Unit 10.
 - `sync` command. Status: baseline completed in Unit 9; default dry-run, `--save` persists to SQLite.
 - Authenticated Session Mode is explicitly out of MVP 2 and remains MVP 5.
 
@@ -725,6 +725,37 @@ Validation summary:
 - Full `unittest discover` passed with 49 tests.
 - `compileall` passed for `src` and `tests`.
 - No live network, auth, browser, downloader, or image/content crawling behavior was introduced.
+
+### Unit 10: Richer Sync Result and Report Output
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/crawler/__init__.py`
+- `src/panelscout/crawler/engine.py`
+- `tests/test_cli.py`
+- `tests/test_detail_sync_workflow.py`
+- `tests/fixtures/zaimanhua/details_15599_updated_with_chapters.html`
+
+Validation summary:
+
+- `PublicDetailSyncResult` now returns explicit `new_chapters`, `new_chapter_count`, and `existing_chapter_count`.
+- Public detail sync reports metadata changes for `title`, `author`, `status`, and `latest_chapter_title` only.
+- `last_checked_at` is refreshed on sync but is not treated as a user-facing metadata change.
+- CLI `sync` output now separates total chapters, new chapters, existing chapters, metadata changes, and new chapter details.
+- Fixture-driven idempotency tests cover first sync, changed detail sync with one new chapter, and repeated unchanged sync.
+- Dry-run sync still uses in-memory SQLite and does not create user-home paths.
+- `--save` persists only to the configured test database in CLI coverage.
+- Focused workflow and CLI tests passed; full `unittest discover` passed with 51 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- No live network, auth, browser, downloader, session, cookie, or image/content crawling behavior was introduced.
 
 ## 16. Open Questions
 

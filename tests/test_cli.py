@@ -191,6 +191,8 @@ class CliTests(unittest.TestCase):
         self.assertIn("第002话 同盟成立", stdout)
         self.assertIn("Chapters: 2", stdout)
         self.assertIn("New chapters: 2", stdout)
+        self.assertIn("Existing chapters: 0", stdout)
+        self.assertIn("New chapter details:", stdout)
         self.assertIn("Saved: no (dry run)", stdout)
         self.assertEqual(stderr, "")
         self.assertEqual(
@@ -249,8 +251,10 @@ class CliTests(unittest.TestCase):
         self.assertEqual(second_code, 0)
         self.assertIn("Saved: yes", first_stdout)
         self.assertIn("New chapters: 2", first_stdout)
+        self.assertIn("Existing chapters: 0", first_stdout)
         self.assertIn("Saved: yes", second_stdout)
         self.assertIn("New chapters: 0", second_stdout)
+        self.assertIn("Existing chapters: 2", second_stdout)
         self.assertEqual(first_stderr, "")
         self.assertEqual(second_stderr, "")
         self.assertEqual(len(chapters), 2)
@@ -265,6 +269,58 @@ class CliTests(unittest.TestCase):
                 "https://manhua.zaimanhua.com/details/15599",
             ],
         )
+
+    def test_sync_save_prints_metadata_changes_and_new_chapter_details(self):
+        initial = (FIXTURE_ROOT / "details_15599_with_chapters.html").read_text(
+            encoding="utf-8"
+        )
+        updated = (
+            FIXTURE_ROOT / "details_15599_updated_with_chapters.html"
+        ).read_text(encoding="utf-8")
+        factory = FakeSyncSequenceFetcherFactory([initial, updated])
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            first_code, first_stdout, first_stderr = run_cli(
+                ["--config", str(config_path), "sync", "15599", "--save"],
+                sync_fetcher_factory=factory,
+            )
+            second_code, second_stdout, second_stderr = run_cli(
+                ["--config", str(config_path), "sync", "15599", "--save"],
+                sync_fetcher_factory=factory,
+            )
+
+        self.assertEqual(first_code, 0)
+        self.assertEqual(second_code, 0)
+        self.assertEqual(first_stderr, "")
+        self.assertEqual(second_stderr, "")
+        self.assertIn("New chapters: 2", first_stdout)
+        self.assertNotIn("Metadata changes:", first_stdout)
+        self.assertIn("Synced detail: 伪恋同盟R", second_stdout)
+        self.assertIn("New chapters: 1", second_stdout)
+        self.assertIn("Existing chapters: 2", second_stdout)
+        self.assertIn("Metadata changes:", second_stdout)
+        self.assertIn("- Title: 伪恋同盟 -> 伪恋同盟R", second_stdout)
+        self.assertIn("- Author: 榊葵/绫乃 -> 榊葵/绫乃/新绘", second_stdout)
+        self.assertIn("- Status: 已完结 -> 连载中", second_stdout)
+        self.assertIn("- Latest chapter: 第002话 -> 第003话", second_stdout)
+        self.assertIn("New chapter details:", second_stdout)
+        self.assertIn("第003话 重新开始", second_stdout)
 
     def test_sync_blank_and_invalid_references_exit_before_fetcher_creation(self):
         factory = RaisingSyncFetcherFactory(AssertionError("factory should not be called"))
@@ -357,6 +413,33 @@ class FakeSyncFetcher:
             status_code=200,
             content_type="text/html; charset=utf-8",
             text=self.html,
+        )
+
+
+class FakeSyncSequenceFetcherFactory:
+    def __init__(self, html_pages: list[str]) -> None:
+        self.fetcher = FakeSyncSequenceFetcher(html_pages)
+        self.configs = []
+
+    def __call__(self, config):
+        self.configs.append(config)
+        return self.fetcher
+
+
+class FakeSyncSequenceFetcher:
+    def __init__(self, html_pages: list[str]) -> None:
+        self.html_pages = html_pages
+        self.urls: list[str] = []
+
+    def fetch_html(self, url: str) -> FetchedHtml:
+        self.urls.append(url)
+        if not self.html_pages:
+            raise AssertionError("FakeSyncSequenceFetcher ran out of fixture pages")
+        return FetchedHtml(
+            url=url,
+            status_code=200,
+            content_type="text/html; charset=utf-8",
+            text=self.html_pages.pop(0),
         )
 
 
