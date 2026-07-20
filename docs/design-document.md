@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.17
+Version: 0.18
 
 Date: 2026-07-20
 
@@ -365,14 +365,14 @@ Unit 1 accepted scope:
 
 ### MVP 4: Local UI
 
-- Search screen.
-- Local library screen.
-- Comic detail screen.
-- Watchlist screen.
-- Update history screen.
-- Chapter selection and local download screen.
-- Download queue/status screen.
-- Download settings screen.
+- Search screen. Status: static shell baseline completed in Unit 15; data wiring pending.
+- Local library screen. Status: static shell baseline completed in Unit 15; data wiring pending.
+- Comic detail screen. Status: static shell baseline completed in Unit 15; data wiring pending.
+- Watchlist screen. Status: static shell baseline completed in Unit 15; data wiring pending.
+- Update history screen. Status: static shell baseline completed in Unit 15; data wiring pending.
+- Chapter selection and local download screen. Status: static shell baseline completed in Unit 15; download execution pending.
+- Download queue/status screen. Status: static shell baseline completed in Unit 15; queue engine pending.
+- Download settings screen. Status: static shell baseline completed in Unit 15; settings persistence pending.
 
 MVP 4 required UI elements:
 
@@ -394,6 +394,12 @@ MVP 4 UI boundaries:
 - The UI may expose downloader controls, but download execution must remain explicit and user-triggered.
 - Do not show login controls until MVP 5.
 - Do not expose paid/VIP bypass, CAPTCHA solving, anti-bot evasion, or redistribution features.
+
+MVP 4 current implementation note:
+
+- Unit 15 ships a static local HTML shell via `panelscout ui build --output PATH`.
+- The current UI shell is a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
+- Download action buttons are visible for planning but disabled, and the folder preview follows `download_root/漫画名/001话/001.jpg`.
 
 ### MVP 5: Authenticated Session Mode
 
@@ -936,6 +942,36 @@ Validation summary:
 - `git diff --check` passed.
 - Agent2 full MVP3 validation passed.
 - No live network, auth, browser, downloader, session, cookie, background daemon, or image/content crawling behavior was introduced.
+
+### Unit 15: Local UI Shell Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/ui/__init__.py`
+- `src/panelscout/ui/shell.py`
+- `tests/test_cli.py`
+- `tests/test_ui.py`
+
+Validation summary:
+
+- `panelscout ui build --output PATH` writes a static local HTML shell.
+- The UI shell includes the MVP 4 navigation and sections: Search, Local Library, Watchlist, Update History, Downloads, and Settings.
+- Static UI areas include a search toolbar, result/library pane, comic detail pane, watchlist status, update history/report area, chapter selector, download queue tabs, folder preview, and settings controls.
+- Download folder preview follows `download_root/漫画名/001话/001.jpg`, matching the planned `漫画名/章节名/001.ext` layout.
+- Download execution controls are visible only as planned/disabled controls.
+- Unit 15 does not introduce live network, auth/login/session/cookie workflow, browser automation, downloader engine, image fetching, background daemon, or scheduler behavior.
+- Focused `tests.test_ui` and `tests.test_cli` checks passed with 28 tests.
+- Full `unittest discover` passed with 76 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Agent2 validation passed.
 
 ## 16. Open Questions
 

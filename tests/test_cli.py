@@ -895,6 +895,36 @@ class CliTests(unittest.TestCase):
         self.assertEqual(invalid_source_stdout, "")
         self.assertIn("unsupported watch schedule source 'example'", invalid_source_stderr)
 
+    def test_ui_build_writes_static_shell_to_requested_output(self):
+        with TemporaryDirectory() as directory:
+            output_path = Path(directory) / "ui" / "panelscout.html"
+
+            code, stdout, stderr = run_cli(
+                ["ui", "build", "--output", str(output_path)]
+            )
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0)
+        self.assertIn(f"UI shell written: {output_path}", stdout)
+        self.assertIn("No server, network, auth, or download task was started.", stdout)
+        self.assertEqual(stderr, "")
+        self.assertIn(">Search<", html)
+        self.assertIn(">Local Library<", html)
+        self.assertIn(">Watchlist<", html)
+        self.assertIn(">Update History<", html)
+        self.assertIn(">Downloads<", html)
+        self.assertIn(">Settings<", html)
+        self.assertIn("download_root/漫画名/001话/001.jpg", html)
+        self.assertIn("Download selected chapters - planned", html)
+        self.assertIn("disabled", html)
+
+    def test_ui_build_blank_output_fails_cleanly(self):
+        code, stdout, stderr = run_cli(["ui", "build", "--output", "   "])
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("ui build output path cannot be blank", stderr)
+
 
 class FakeSearchFetcherFactory:
     def __init__(self, html: str) -> None:

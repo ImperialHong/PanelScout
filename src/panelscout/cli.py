@@ -29,6 +29,7 @@ from panelscout.exporters import (
     export_watch_check_markdown,
 )
 from panelscout.storage import ComicRepository, StorageError, connect_database
+from panelscout.ui import write_local_ui_shell
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -198,6 +199,20 @@ def build_parser() -> argparse.ArgumentParser:
         watch_schedule_command="show",
     )
     watch_parser.set_defaults(handler=_handle_watch_list, watch_command="list", limit=100)
+
+    ui_parser = subparsers.add_parser("ui", help="Build local UI artifacts.")
+    ui_subparsers = ui_parser.add_subparsers(dest="ui_command")
+    ui_build = ui_subparsers.add_parser(
+        "build",
+        help="Build the static MVP4 local UI shell.",
+    )
+    ui_build.add_argument(
+        "--output",
+        required=True,
+        help="Output HTML file path.",
+    )
+    ui_build.set_defaults(handler=_handle_ui_build)
+    ui_parser.set_defaults(handler=_handle_ui_help)
 
     export_parser = subparsers.add_parser("export", help="Export collected metadata.")
     export_parser.add_argument(
@@ -629,6 +644,24 @@ def _handle_watch_schedule_due(args: argparse.Namespace, config) -> int:
     print(f"Due watch check schedules: {len(schedules)}")
     for schedule in schedules:
         print(f"- {schedule.source}: next run {schedule.next_run_at}")
+    return 0
+
+
+def _handle_ui_help(args: argparse.Namespace, config) -> int:
+    print("panelscout ui build --output PATH")
+    print("Builds a static local UI shell; no server or network request is made.")
+    return 0
+
+
+def _handle_ui_build(args: argparse.Namespace, config) -> int:
+    output = (args.output or "").strip()
+    if not output:
+        print("panelscout: ui build output path cannot be blank", file=sys.stderr)
+        return 1
+
+    output_path = write_local_ui_shell(output)
+    print(f"UI shell written: {output_path}")
+    print("Open the HTML file locally. No server, network, auth, or download task was started.")
     return 0
 
 
