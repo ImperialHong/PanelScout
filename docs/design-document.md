@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.18
+Version: 0.19
 
 Date: 2026-07-20
 
@@ -365,14 +365,14 @@ Unit 1 accepted scope:
 
 ### MVP 4: Local UI
 
-- Search screen. Status: static shell baseline completed in Unit 15; data wiring pending.
-- Local library screen. Status: static shell baseline completed in Unit 15; data wiring pending.
-- Comic detail screen. Status: static shell baseline completed in Unit 15; data wiring pending.
-- Watchlist screen. Status: static shell baseline completed in Unit 15; data wiring pending.
-- Update history screen. Status: static shell baseline completed in Unit 15; data wiring pending.
-- Chapter selection and local download screen. Status: static shell baseline completed in Unit 15; download execution pending.
+- Search screen. Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16.
+- Local library screen. Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16.
+- Comic detail screen. Status: static shell baseline completed in Unit 15; selected comic metadata and local chapter list binding completed in Unit 16.
+- Watchlist screen. Status: static shell baseline completed in Unit 15; local watchlist entries, notes, and checked-status binding completed in Unit 16.
+- Update history screen. Status: static shell baseline completed in Unit 15; local summary binding completed in Unit 16; persisted history stream pending.
+- Chapter selection and local download screen. Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; download execution pending.
 - Download queue/status screen. Status: static shell baseline completed in Unit 15; queue engine pending.
-- Download settings screen. Status: static shell baseline completed in Unit 15; settings persistence pending.
+- Download settings screen. Status: static shell baseline completed in Unit 15; database path binding completed in Unit 16; settings persistence pending.
 
 MVP 4 required UI elements:
 
@@ -398,8 +398,10 @@ MVP 4 UI boundaries:
 MVP 4 current implementation note:
 
 - Unit 15 ships a static local HTML shell via `panelscout ui build --output PATH`.
+- Unit 16 reads the configured local SQLite database when it exists and renders saved catalog, chapter, watchlist, watch schedule, and local summary data into that static shell.
+- Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The current UI shell is a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
-- Download action buttons are visible for planning but disabled, and the folder preview follows `download_root/漫画名/001话/001.jpg`.
+- Download action buttons are visible for planning but disabled, and the folder preview follows `download_root/漫画名/章节名/001.jpg`.
 
 ### MVP 5: Authenticated Session Mode
 
@@ -972,6 +974,38 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
 - Agent2 validation passed.
+
+### Unit 16: Local UI Data Binding Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/ui/__init__.py`
+- `src/panelscout/ui/shell.py`
+- `src/panelscout/ui/state.py`
+- `tests/test_cli.py`
+- `tests/test_ui.py`
+
+Validation summary:
+
+- `panelscout ui build --output PATH` now builds a local UI state snapshot from the configured SQLite database when the database exists.
+- The static UI renders real local catalog entries, selected comic metadata, selected comic local chapters, watchlist entries, watchlist notes, watch checked-status, watch schedule summary, and database path.
+- Missing databases render safe empty states and do not create default user-home database directories.
+- Initialized empty databases render explicit empty states and do not fall back to sample data.
+- The Downloads chapter selector is populated from the selected comic's local chapters when available.
+- Download controls remain visible only as planned/disabled controls; no downloader engine, image fetching, retry execution, or queue runtime was introduced.
+- Unit 16 does not introduce live network, auth/login/session/cookie workflow, browser automation, background daemon, scheduler execution, or image/content crawling behavior.
+- Focused `tests.test_ui` and `tests.test_cli` checks passed with 32 tests.
+- Full `unittest discover` passed with 80 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Agent2 validation passed after the initialized-empty database test coverage was added.
 
 ## 16. Open Questions
 

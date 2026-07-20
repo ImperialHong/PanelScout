@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from html import escape
 from pathlib import Path
+
+from panelscout.ui.state import LocalUiState, UiComic, sample_local_ui_state
 
 
 NAV_ITEMS = (
@@ -17,17 +20,20 @@ NAV_ITEMS = (
 DOWNLOAD_LAYOUT_PREVIEW = "download_root/漫画名/001话/001.jpg"
 
 
-def build_local_ui_shell() -> str:
+def build_local_ui_shell(state: LocalUiState | None = None) -> str:
     """Render the static MVP4 local UI shell.
 
-    Unit 15 deliberately ships a plain HTML artifact instead of a live app server.
-    Controls that imply downloading are visible for planning but disabled.
+    The artifact is a plain local HTML file. Controls that imply downloading
+    remain visible for planning but disabled.
     """
 
+    use_fallback_preview = state is None
+    ui_state = state or sample_local_ui_state()
     nav = "\n".join(
         f'        <a class="nav-item" href="#{_anchor(item)}">{item}</a>'
         for item in NAV_ITEMS
     )
+    search_value = ui_state.selected_comic.title if ui_state.selected_comic else ""
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -136,7 +142,7 @@ def build_local_ui_shell() -> str:
       font-size: 16px;
       margin-bottom: 4px;
     }}
-    .muted {{ color: var(--muted); }}
+    .muted, .empty {{ color: var(--muted); }}
     .meta-row {{
       display: flex;
       flex-wrap: wrap;
@@ -253,103 +259,223 @@ def build_local_ui_shell() -> str:
   <main>
     <aside id="search">
       <form class="toolbar" aria-label="Search toolbar">
-        <input type="search" value="伪恋" aria-label="Search keyword">
+        <input type="search" value="{_e(search_value)}" aria-label="Search keyword">
         <select aria-label="Source">
-          <option>zaimanhua</option>
+          <option>{_e(ui_state.source)}</option>
         </select>
         <button class="primary" type="button">Search</button>
       </form>
-      <div class="card">
-        <div class="comic-title">伪恋同盟</div>
-        <div class="meta-row">
-          <span>author: 榊葵/绫乃</span>
-          <span>latest: 第112话</span>
-          <span>status: 已完结</span>
-        </div>
-      </div>
-      <div class="card">
-        <div class="comic-title">海贼同人短篇合集</div>
-        <div class="meta-row">
-          <span>author: sample</span>
-          <span>latest: 第018话</span>
-          <span>source id: 251780</span>
-        </div>
-      </div>
+{_render_search_cards(ui_state)}
       <div class="card" id="local-library">
         <h2>Local Library</h2>
         <table class="table">
           <thead><tr><th>Title</th><th>Latest</th><th>Checked</th></tr></thead>
           <tbody>
-            <tr><td>伪恋同盟</td><td>第112话</td><td>2026-07-20</td></tr>
-            <tr><td>Broken Watch</td><td class="muted">unknown</td><td class="muted">never</td></tr>
+{_render_library_rows(ui_state)}
           </tbody>
         </table>
       </div>
     </aside>
     <section class="workspace">
       <div class="split">
-        <div class="card">
-          <h2>Comic Detail</h2>
-          <div class="comic-title">伪恋同盟</div>
-          <div class="meta-row">
-            <span>source: zaimanhua</span>
-            <span>id: 15599</span>
-            <span>latest: 第112话</span>
-          </div>
-          <p class="muted">Detail URL: https://manhua.zaimanhua.com/details/15599</p>
-          <button type="button">Sync Detail</button>
-          <button type="button">Add Watch</button>
-        </div>
-        <div class="card" id="watchlist">
-          <h2>Watchlist</h2>
-          <table class="table">
-            <thead><tr><th>Comic</th><th>Last checked</th><th>Status</th></tr></thead>
-            <tbody>
-              <tr><td>伪恋同盟</td><td>2026-07-20</td><td><span class="status">ready</span></td></tr>
-              <tr><td>海贼同人短篇合集</td><td class="muted">never</td><td><span class="status planned">planned check</span></td></tr>
-            </tbody>
-          </table>
-        </div>
+{_render_detail(ui_state)}
+{_render_watchlist(ui_state)}
       </div>
       <div class="split">
-        <div class="card" id="update-history">
+{_render_update_history(ui_state)}
+{_render_downloads(ui_state, use_fallback_preview=use_fallback_preview)}
+      </div>
+{_render_settings(ui_state)}
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
+def write_local_ui_shell(output_path: str | Path, state: LocalUiState | None = None) -> Path:
+    path = Path(output_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(build_local_ui_shell(state), encoding="utf-8")
+    return path
+
+
+def _render_search_cards(state: LocalUiState) -> str:
+    if not state.comics:
+        return f"""      <div class="card">
+        <div class="comic-title">No local catalog data yet</div>
+        <p class="empty">{_e(state.data_status)}</p>
+      </div>"""
+    return "\n".join(_render_comic_card(comic) for comic in state.comics[:6])
+
+
+def _render_comic_card(comic: UiComic) -> str:
+    return f"""      <div class="card">
+        <div class="comic-title">{_e(comic.title)}</div>
+        <div class="meta-row">
+{_render_comic_meta(comic, include_source_id=True)}
+        </div>
+      </div>"""
+
+
+def _render_library_rows(state: LocalUiState) -> str:
+    if not state.comics:
+        return '            <tr><td colspan="3" class="empty">No comics in local library yet.</td></tr>'
+    rows = []
+    for comic in state.comics[:20]:
+        checked = comic.last_checked_at or comic.updated_at or "never"
+        latest = comic.latest_chapter_title or "unknown"
+        rows.append(
+            "            "
+            f"<tr><td>{_e(comic.title)}</td><td>{_e(latest)}</td><td>{_e(checked)}</td></tr>"
+        )
+    return "\n".join(rows)
+
+
+def _render_detail(state: LocalUiState) -> str:
+    comic = state.selected_comic
+    if comic is None:
+        return """        <div class="card">
+          <h2>Comic Detail</h2>
+          <div class="comic-title">No comic selected</div>
+          <p class="empty">Save public metadata first to populate this panel.</p>
+          <h3>Local Chapters</h3>
+          <p class="empty">No chapters for the selected comic yet.</p>
+          <button type="button" disabled>Sync Detail - planned</button>
+          <button type="button" disabled>Add Watch - planned</button>
+        </div>"""
+
+    detail_url = comic.detail_url or "unknown"
+    summary = f'          <p class="muted">{_e(comic.summary)}</p>\n' if comic.summary else ""
+    return f"""        <div class="card">
+          <h2>Comic Detail</h2>
+          <div class="comic-title">{_e(comic.title)}</div>
+          <div class="meta-row">
+{_render_comic_meta(comic, include_source_id=True)}
+          </div>
+          <p class="muted">Detail URL: {_e(detail_url)}</p>
+{summary}          <h3>Local Chapters</h3>
+{_render_detail_chapters(state)}
+          <button type="button" disabled>Sync Detail - planned</button>
+          <button type="button" disabled>Add Watch - planned</button>
+        </div>"""
+
+
+def _render_detail_chapters(state: LocalUiState) -> str:
+    if not state.chapters:
+        return '          <p class="empty">No local chapters saved for this comic yet.</p>'
+    rows = []
+    for index, chapter in enumerate(state.chapters[:12], start=1):
+        order = chapter.chapter_order if chapter.chapter_order is not None else index
+        rows.append(
+            "              "
+            f"<tr><td>{_e(order)}</td><td>{_e(chapter.title)}</td>"
+            f"<td>{_e(chapter.chapter_url)}</td></tr>"
+        )
+    return f"""          <table class="table" aria-label="Selected comic chapters">
+            <thead><tr><th>Order</th><th>Chapter</th><th>Chapter URL</th></tr></thead>
+            <tbody>
+{chr(10).join(rows)}
+            </tbody>
+          </table>"""
+
+
+def _render_watchlist(state: LocalUiState) -> str:
+    rows = []
+    if not state.watchlist_entries:
+        rows.append(
+            '              <tr><td colspan="4" class="empty">No watched comics yet.</td></tr>'
+        )
+    else:
+        for entry in state.watchlist_entries[:20]:
+            checked = entry.last_checked_at or "never"
+            notes = entry.notes or "none"
+            status_class = "status" if entry.last_checked_at else "status planned"
+            status_text = "ready" if entry.last_checked_at else "planned check"
+            rows.append(
+                "              "
+                f"<tr><td>{_e(entry.comic.title)}</td><td>{_e(checked)}</td><td>{_e(notes)}</td>"
+                f'<td><span class="{status_class}">{status_text}</span></td></tr>'
+            )
+    body = "\n".join(rows)
+    return f"""        <div class="card" id="watchlist">
+          <h2>Watchlist</h2>
+          <table class="table">
+            <thead><tr><th>Comic</th><th>Last checked</th><th>Notes</th><th>Status</th></tr></thead>
+            <tbody>
+{body}
+            </tbody>
+          </table>
+        </div>"""
+
+
+def _render_update_history(state: LocalUiState) -> str:
+    rows = []
+    if not state.history_rows:
+        rows.append(
+            '              <tr><td colspan="3" class="empty">No local update history yet.</td></tr>'
+        )
+    else:
+        for row in state.history_rows:
+            rows.append(
+                "              "
+                f"<tr><td>{_e(row.kind)}</td><td>{_e(row.comic_title)}</td>"
+                f"<td>{_e(row.detail)}</td></tr>"
+            )
+    schedule = state.watch_schedule
+    if schedule is None:
+        schedule_line = "No local watch schedule configured."
+    else:
+        enabled = "enabled" if schedule.enabled else "disabled"
+        schedule_line = (
+            f"{schedule.source}: every {schedule.interval_minutes} minutes, "
+            f"{enabled}, next run {schedule.next_run_at}"
+        )
+    return f"""        <div class="card" id="update-history">
           <h2>Update History</h2>
-          <p><strong>Last watch check:</strong> checked 2, succeeded 1, failed 1.</p>
+          <p><strong>Database:</strong> {_e(state.data_status)}</p>
+          <p><strong>Watch schedule:</strong> {_e(schedule_line)}</p>
           <table class="table">
             <thead><tr><th>Type</th><th>Comic</th><th>Detail</th></tr></thead>
             <tbody>
-              <tr><td>New chapter</td><td>伪恋同盟</td><td>第003话 重新开始</td></tr>
-              <tr><td>Metadata</td><td>伪恋同盟</td><td>Latest chapter changed</td></tr>
-              <tr><td>Report</td><td colspan="2">watch-check.md ready for export</td></tr>
+{chr(10).join(rows)}
             </tbody>
           </table>
-        </div>
-        <div class="card" id="downloads">
+        </div>"""
+
+
+def _render_downloads(state: LocalUiState, *, use_fallback_preview: bool) -> str:
+    if state.chapters:
+        chapter_controls = "\n".join(
+            f'            <label><input type="checkbox">{_e(chapter.title)}</label>'
+            for chapter in state.chapters[:12]
+        )
+    else:
+        chapter_controls = '            <p class="empty">No local chapters available yet.</p>'
+    preview = DOWNLOAD_LAYOUT_PREVIEW if use_fallback_preview else _download_preview(state)
+    return f"""        <div class="card" id="downloads">
           <h2>Downloads</h2>
           <div class="queue-tabs" aria-label="Download queue tabs">
             <span>Pending</span><span>Completed</span><span>Failed</span>
           </div>
           <h3>Chapter Selector</h3>
           <div class="chapter-grid">
-            <label><input type="checkbox">001话</label>
-            <label><input type="checkbox">002话</label>
-            <label><input type="checkbox">003话</label>
-            <label><input type="checkbox">004话</label>
-            <label><input type="checkbox">005话</label>
-            <label><input type="checkbox">006话</label>
+{chapter_controls}
           </div>
           <button type="button" disabled>Download selected chapters - planned</button>
           <button type="button" disabled>Retry failed - planned</button>
-          <p class="muted">Queue status: planned only; no downloader engine is active in Unit 15.</p>
+          <p class="muted">Queue status: planned only; no downloader engine is active in Unit 16.</p>
           <h3>Folder Preview</h3>
-          <code>{DOWNLOAD_LAYOUT_PREVIEW}</code>
-        </div>
-      </div>
-      <div class="card" id="settings">
+          <code>{_e(preview)}</code>
+        </div>"""
+
+
+def _render_settings(state: LocalUiState) -> str:
+    return f"""      <div class="card" id="settings">
         <h2>Settings</h2>
         <div class="settings-grid">
           <label for="database-path">Database path</label>
-          <input id="database-path" value="~/.local/share/panelscout/panelscout.sqlite3">
+          <input id="database-path" value="{_e(state.database_path)}">
           <label for="download-root">Download root</label>
           <input id="download-root" value="~/PanelScout Downloads">
           <label for="concurrency">Download concurrency</label>
@@ -358,19 +484,43 @@ def build_local_ui_shell() -> str:
           <input id="rate-limit" value="1 request every 3 seconds" disabled>
         </div>
         <p><span class="status planned">Downloader controls planned/disabled</span></p>
-      </div>
-    </section>
-  </main>
-</body>
-</html>
-"""
+      </div>"""
 
 
-def write_local_ui_shell(output_path: str | Path) -> Path:
-    path = Path(output_path).expanduser()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(build_local_ui_shell(), encoding="utf-8")
-    return path
+def _render_comic_meta(comic: UiComic, *, include_source_id: bool) -> str:
+    parts = []
+    if comic.author:
+        parts.append(f"author: {comic.author}")
+    if comic.latest_chapter_title:
+        parts.append(f"latest: {comic.latest_chapter_title}")
+    if comic.status:
+        parts.append(f"status: {comic.status}")
+    if include_source_id:
+        parts.append(f"source id: {comic.source_comic_id}")
+    if not parts:
+        parts.append(f"source: {comic.source}")
+    return "\n".join(f"          <span>{_e(part)}</span>" for part in parts)
+
+
+def _download_preview(state: LocalUiState) -> str:
+    if state.selected_comic is None:
+        return DOWNLOAD_LAYOUT_PREVIEW
+    comic_name = _path_segment(state.selected_comic.title, fallback="漫画名")
+    chapter_name = (
+        _path_segment(state.chapters[0].title, fallback="001话")
+        if state.chapters
+        else "001话"
+    )
+    return f"download_root/{comic_name}/{chapter_name}/001.jpg"
+
+
+def _path_segment(value: str, *, fallback: str) -> str:
+    cleaned = value.strip().replace("/", "_").replace("\\", "_")
+    return cleaned or fallback
+
+
+def _e(value: object) -> str:
+    return escape(str(value), quote=True)
 
 
 def _anchor(label: str) -> str:

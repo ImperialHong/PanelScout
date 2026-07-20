@@ -29,7 +29,7 @@ from panelscout.exporters import (
     export_watch_check_markdown,
 )
 from panelscout.storage import ComicRepository, StorageError, connect_database
-from panelscout.ui import write_local_ui_shell
+from panelscout.ui import build_local_ui_state, write_local_ui_shell
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -659,8 +659,10 @@ def _handle_ui_build(args: argparse.Namespace, config) -> int:
         print("panelscout: ui build output path cannot be blank", file=sys.stderr)
         return 1
 
-    output_path = write_local_ui_shell(output)
+    state = build_local_ui_state(config)
+    output_path = write_local_ui_shell(output, state=state)
     print(f"UI shell written: {output_path}")
+    print(f"UI data: {state.data_status}")
     print("Open the HTML file locally. No server, network, auth, or download task was started.")
     return 0
 

@@ -9,7 +9,7 @@ from unittest.mock import patch
 from panelscout import __version__
 from panelscout.cli import main
 from panelscout.crawler import FetchedHtml, RobotsLoadError
-from panelscout.storage import Comic, ComicRepository, connect_database
+from panelscout.storage import Chapter, Comic, ComicRepository, connect_database
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "zaimanhua"
 
@@ -897,15 +897,29 @@ class CliTests(unittest.TestCase):
 
     def test_ui_build_writes_static_shell_to_requested_output(self):
         with TemporaryDirectory() as directory:
-            output_path = Path(directory) / "ui" / "panelscout.html"
+            root = Path(directory)
+            output_path = root / "ui" / "panelscout.html"
+            fake_home = root / "home"
+            fake_config_home = root / "config-home"
+            fake_data_home = root / "data-home"
+            fake_cache_home = root / "cache-home"
+            env = {
+                "HOME": str(fake_home),
+                "XDG_CONFIG_HOME": str(fake_config_home),
+                "XDG_DATA_HOME": str(fake_data_home),
+                "XDG_CACHE_HOME": str(fake_cache_home),
+            }
 
-            code, stdout, stderr = run_cli(
-                ["ui", "build", "--output", str(output_path)]
-            )
+            with patch.dict(os.environ, env, clear=False):
+                os.environ.pop("PANELSCOUT_CONFIG", None)
+                code, stdout, stderr = run_cli(
+                    ["ui", "build", "--output", str(output_path)]
+                )
             html = output_path.read_text(encoding="utf-8")
 
         self.assertEqual(code, 0)
         self.assertIn(f"UI shell written: {output_path}", stdout)
+        self.assertIn("UI data: Configured database does not exist yet.", stdout)
         self.assertIn("No server, network, auth, or download task was started.", stdout)
         self.assertEqual(stderr, "")
         self.assertIn(">Search<", html)
@@ -917,6 +931,77 @@ class CliTests(unittest.TestCase):
         self.assertIn("download_root/漫画名/001话/001.jpg", html)
         self.assertIn("Download selected chapters - planned", html)
         self.assertIn("disabled", html)
+        self.assertIn("No comics in local library yet.", html)
+        self.assertFalse(fake_home.exists())
+        self.assertFalse(fake_config_home.exists())
+        self.assertFalse(fake_data_home.exists())
+        self.assertFalse(fake_cache_home.exists())
+
+    def test_ui_build_renders_configured_local_database_data(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            output_path = root / "ui" / "panelscout.html"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with connect_database(database_path) as connection:
+                repository = ComicRepository(connection)
+                comic = repository.upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="15599",
+                        title="伪恋同盟",
+                        author="榊葵/绫乃",
+                        latest_chapter_title="第003话 重新开始",
+                        detail_url="https://manhua.zaimanhua.com/details/15599",
+                        updated_at="2026-07-20T02:00:00+00:00",
+                    )
+                )
+                assert comic.id is not None
+                repository.upsert_chapter(
+                    Chapter(
+                        comic_id=comic.id,
+                        title="第001话 背叛之后",
+                        chapter_order=1,
+                        chapter_url="https://manhua.zaimanhua.com/view/15599/1001.html",
+                    )
+                )
+                repository.add_watchlist_entry(
+                    "zaimanhua",
+                    "15599",
+                    notes="read after UI pass",
+                )
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "ui", "build", "--output", str(output_path)]
+            )
+            html = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0)
+        self.assertIn("UI data: Loaded local database: 1 comics, 1 watched, 1 chapters", stdout)
+        self.assertIn("No server, network, auth, or download task was started.", stdout)
+        self.assertEqual(stderr, "")
+        self.assertIn("伪恋同盟", html)
+        self.assertIn("榊葵/绫乃", html)
+        self.assertIn("Local Chapters", html)
+        self.assertIn("Chapter URL", html)
+        self.assertIn("第001话 背叛之后", html)
+        self.assertIn("https://manhua.zaimanhua.com/view/15599/1001.html", html)
+        self.assertIn(">Notes<", html)
+        self.assertIn("read after UI pass", html)
+        self.assertIn("download_root/伪恋同盟/第001话 背叛之后/001.jpg", html)
+        self.assertNotIn("海贼同人短篇合集", html)
 
     def test_ui_build_blank_output_fails_cleanly(self):
         code, stdout, stderr = run_cli(["ui", "build", "--output", "   "])
