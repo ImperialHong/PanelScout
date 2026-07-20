@@ -1026,6 +1026,36 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertIn("ui build 输出路径不能为空", stderr)
 
+    def test_ui_serve_uses_local_runner_factory(self):
+        factory = FakeUiServerFactory()
+
+        code, stdout, stderr = run_cli(
+            ["ui", "serve", "--port", "0"],
+            ui_server_factory=factory,
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stdout, "")
+        self.assertEqual(stderr, "")
+        self.assertEqual(factory.calls, [("127.0.0.1", 0)])
+
+    def test_ui_serve_rejects_public_host(self):
+        public_code, public_stdout, public_stderr = run_cli(
+            ["ui", "serve", "--host", "0.0.0.0", "--port", "0"]
+        )
+        localhost_code, localhost_stdout, localhost_stderr = run_cli(
+            ["ui", "serve", "--host", "localhost", "--port", "0"]
+        )
+
+        self.assertEqual(public_code, 1)
+        self.assertEqual(public_stdout, "")
+        self.assertIn("ui serve 配置错误", public_stderr)
+        self.assertIn("127.0.0.1", public_stderr)
+        self.assertEqual(localhost_code, 1)
+        self.assertEqual(localhost_stdout, "")
+        self.assertIn("ui serve 配置错误", localhost_stderr)
+        self.assertIn("127.0.0.1", localhost_stderr)
+
     def test_download_plan_prints_paths_without_writing_files(self):
         chapter_fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(
             encoding="utf-8"
@@ -1282,6 +1312,14 @@ class FakeCliImageFetcher:
             content_type=f"image/{extension}",
             content=f"cli image bytes for {url}".encode("utf-8"),
         )
+
+
+class FakeUiServerFactory:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, int]] = []
+
+    def __call__(self, config, *, host: str, port: int) -> None:
+        self.calls.append((host, port))
 
 
 class FakeSearchFetcherFactory:

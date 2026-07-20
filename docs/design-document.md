@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.26
+Version: 0.27
 
 Date: 2026-07-20
 
@@ -175,6 +175,11 @@ Current CLI baseline:
 - Unit 22 validated the minimum line from search/save through sync/chapter selection to local image save.
 - Unit 23 added Chinese UI command previews and changed the default configured download root to `/downloads`.
 - Unit 24 changed the default configured download root to the macOS default Downloads folder, `~/Downloads`.
+- Unit 25 adds local download status reading from `download_root/comic_title/chapter_title`.
+- Unit 26 adds `panelscout ui serve`, a foreground local runner bound to `127.0.0.1`.
+- Unit 27 wires the interactive Chinese UI to public search/save and detail/chapter sync APIs.
+- Unit 28 wires the UI to explicit download plan/run APIs.
+- Unit 29 returns local saved/partial download status for selected chapters.
 
 Default download root:
 
@@ -404,15 +409,15 @@ Unit 1 accepted scope:
 
 ### MVP 4: Local UI
 
-MVP 4 was temporarily de-prioritized behind the minimum search-to-download business line. The CLI minimum line is accepted through Unit 22, and Unit 23 begins wiring the Chinese local UI to the accepted CLI download behavior through command previews.
+MVP 4 was temporarily de-prioritized behind the minimum search-to-download business line. The CLI minimum line is accepted through Unit 22. Units 23-24 add static UI download command previews and the macOS Downloads default. Units 25-29 add a local-only runner/API and connect the Chinese UI to the accepted search, sync, download plan/run, and download-status workflows.
 
 - 搜索页。Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 本地库页。Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 漫画详情页。Status: static shell baseline completed in Unit 15; selected comic metadata and local chapter list binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 追更页。Status: static shell baseline completed in Unit 15; local watchlist entries, notes, and checked-status binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 更新历史页。Status: static shell baseline completed in Unit 15; local summary binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; persisted history stream pending.
-- 章节选择与本地下载页。Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; CLI download plan/run baseline completed in Units 20-21; UI command bridge completed in Unit 23; direct UI execution pending.
-- 下载队列/状态页。Status: static shell baseline completed in Unit 15; Chinese UI copy baseline completed in Unit 17; queue engine pending.
+- 章节选择与本地下载页。Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; CLI download plan/run baseline completed in Units 20-21; UI command bridge completed in Unit 23; local runner/API download plan/run wiring completed in Unit 28.
+- 下载队列/状态页。Status: static shell baseline completed in Unit 15; Chinese UI copy baseline completed in Unit 17; local saved/partial status read completed in Unit 29; queue engine remains out of scope for the minimum line.
 - 下载设置页。Status: static shell baseline completed in Unit 15; database path binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; settings persistence pending.
 
 MVP 4 required UI elements:
@@ -445,9 +450,15 @@ MVP 4 current implementation note:
 - Units 18-22 complete the CLI-level minimum search-to-download line, but the static UI still does not execute downloads directly.
 - Unit 23 renders copyable `panelscout download plan/run` command previews for the selected local chapter.
 - Unit 24 renders the macOS default Downloads folder as the default download root.
+- Unit 25 adds reusable local download status reading without fetching chapter HTML or images.
+- Unit 26 adds `panelscout ui serve`, a foreground local HTTP runner/API that only binds to `127.0.0.1`.
+- Unit 27 adds interactive UI calls for public search/save and public detail/chapter sync.
+- Unit 28 adds interactive UI calls for explicit download plan/run using the accepted downloader workflow and permission note.
+- Unit 29 adds interactive UI status reads for saved and partial files in the selected chapter directory.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
-- The current UI shell is a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
-- Download action buttons are visible for planning but disabled, and the folder preview follows `~/Downloads/漫画名/章节名/001.jpg` or the expanded configured download root.
+- The static `ui build` shell remains a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
+- The interactive `ui serve` shell calls only the local PanelScout runner. It can trigger public search/sync/download workflows only after user actions, and it does not call third-party websites directly from browser JavaScript.
+- Download action buttons in the interactive runner are user-triggered and require the permission note field. They do not start a queue or background daemon.
 
 ### MVP 5: Authenticated Session Mode
 
@@ -572,17 +583,18 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 3. Add chapter image discovery from public chapter pages using local fixtures first, with no bypass behavior. Status: completed in Unit 19.
 4. Add opt-in CLI download execution for explicitly selected local chapters, with permission notes, conservative delays, temporary files, resume/skip behavior, and failure logging. Status: completed in Units 20-21.
 5. Validate the full minimum line end to end: search -> save -> sync chapters -> select chapter -> download to local folders. Status: completed in Unit 22.
-6. Resume MVP 4 by wiring the Chinese UI to the accepted CLI/download status.
-7. Keep Authenticated Session Mode in MVP 5 until the anonymous/public UI-facing download line is stable and safe.
-8. Reassess downloader scope continuously against legal and source-policy risk.
+6. Resume MVP 4 by wiring the Chinese UI to the accepted search/sync/download/status workflows. Status: completed through Unit 29 at fixture-test level.
+7. Harden the local UI business flow with clearer empty states, progress display, and manual smoke checks before adding secondary UI features.
+8. Keep Authenticated Session Mode in MVP 5 until the anonymous/public UI-facing download line is stable and safe.
+9. Reassess downloader scope continuously against legal and source-policy risk.
 
 ## 15. Implementation Progress
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 24.
+Current accepted range: Unit 1 through Unit 29.
 
-Latest accepted Unit: Unit 24, macOS Downloads Default and Smoke Test.
+Latest accepted Unit: Unit 29, UI Download Status Readout.
 
 High-level milestone status:
 
@@ -590,20 +602,23 @@ High-level milestone status:
 - MVP 2: Public detail sync, chapter metadata upsert, safe CLI sync integration, richer sync result, and report output are accepted. Authenticated Session Mode remains deferred to MVP 5.
 - MVP 3: Local watchlist, public watch update checks, Markdown watch reports, and local suggested watch schedule baseline are accepted.
 - Minimum search-to-download line: Search, save, public detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level.
-- MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, and UI command bridge for accepted CLI download behavior are accepted. Direct UI execution remains pending.
+- MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, UI command bridge, local-only UI runner/API, UI search/save, UI detail/chapter sync, UI download plan/run, and UI download status read are accepted at fixture-test level.
 - MVP 5: Authenticated Session Mode is not started.
 
 ## 16. Next Unit Plan
 
-Current priority: resume MVP 4 UI wiring on top of the accepted minimum search-to-download business line.
+Current priority: harden the accepted local UI business MVP with focused usability, visible progress, and error-state refinement before expanding secondary pages.
 
 Planned next Units:
 
 - Unit 23: UI download command bridge. Status: accepted; no direct UI execution.
 - Unit 24: macOS Downloads default and smoke test. Status: accepted.
-- Unit 25: UI download status import. Read locally generated download folders and show saved/missing/failed counts for selected chapters.
-- Unit 26: UI-to-local-runner decision. Decide whether MVP 4 stays static-command-driven or adds a local-only service runner; any runner must remain explicit, local, and disabled until launched by the user.
-- Unit 27+: UX polish for search/detail/download flow after the UI has a safe path to the accepted CLI behavior.
+- Unit 25: UI download status import. Status: accepted; reads local generated download folders and reports saved/partial files.
+- Unit 26: Local UI runner/API. Status: accepted; `panelscout ui serve` binds to `127.0.0.1`.
+- Unit 27: UI search/save and detail/chapter sync. Status: accepted through local API endpoints.
+- Unit 28: UI download plan/run. Status: accepted through explicit local API endpoints.
+- Unit 29: UI download status readout. Status: accepted through local API endpoint and downloader status module.
+- Unit 30: UI business-flow hardening: clearer selected-chapter state, progress/readout polish, and manual local runner smoke checks.
 
 ## 17. Open Questions
 

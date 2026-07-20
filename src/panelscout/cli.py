@@ -34,7 +34,11 @@ from panelscout.exporters import (
     export_watch_check_markdown,
 )
 from panelscout.storage import ComicRepository, StorageError, connect_database
-from panelscout.ui import build_local_ui_state, write_local_ui_shell
+from panelscout.ui import (
+    build_local_ui_state,
+    serve_local_ui,
+    write_local_ui_shell,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -217,6 +221,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="输出 HTML 文件路径。",
     )
     ui_build.set_defaults(handler=_handle_ui_build)
+    ui_serve = ui_subparsers.add_parser(
+        "serve",
+        help="启动只监听 127.0.0.1 的本地 UI/API。",
+    )
+    ui_serve.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="本地监听地址，仅支持 127.0.0.1。",
+    )
+    ui_serve.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="本地端口，默认 8765；测试可使用 0 自动分配。",
+    )
+    ui_serve.set_defaults(handler=_handle_ui_serve)
     ui_parser.set_defaults(handler=_handle_ui_help)
 
     download_parser = subparsers.add_parser(
@@ -284,6 +304,7 @@ def main(
     sync_fetcher_factory=None,
     download_fetcher_factory=None,
     image_fetcher_factory=None,
+    ui_server_factory=None,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -313,6 +334,12 @@ def main(
                 args.download_fetcher_factory = download_fetcher_factory
             if image_fetcher_factory is not None:
                 args.image_fetcher_factory = image_fetcher_factory
+        if (
+            args.command == "ui"
+            and getattr(args, "ui_command", None) == "serve"
+            and ui_server_factory is not None
+        ):
+            args.ui_server_factory = ui_server_factory
         handler = getattr(args, "handler", None)
         if handler is None:
             parser.print_help()
@@ -711,7 +738,8 @@ def _handle_watch_schedule_due(args: argparse.Namespace, config) -> int:
 
 def _handle_ui_help(args: argparse.Namespace, config) -> int:
     print("panelscout ui build --output PATH")
-    print("生成本地静态 UI；不会启动服务，也不会发起网络请求。")
+    print("panelscout ui serve [--port PORT]")
+    print("build 生成本地静态 UI 文件；serve 启动 127.0.0.1 本地 UI/API。")
     return 0
 
 
@@ -726,6 +754,24 @@ def _handle_ui_build(args: argparse.Namespace, config) -> int:
     print(f"UI 文件已写入：{output_path}")
     print(f"UI 数据：{state.data_status}")
     print("请在本地打开 HTML 文件。未启动服务、网络、登录或下载任务。")
+    return 0
+
+
+def _handle_ui_serve(args: argparse.Namespace, config) -> int:
+    port = args.port
+    if port < 0 or port > 65535:
+        print("panelscout：ui serve 端口必须在 0 到 65535 之间", file=sys.stderr)
+        return 1
+
+    factory = getattr(args, "ui_server_factory", None) or serve_local_ui
+    try:
+        factory(config, host=args.host, port=port)
+    except OSError as error:
+        print(f"panelscout：ui serve 启动失败：{error}", file=sys.stderr)
+        return 1
+    except ValueError as error:
+        print(f"panelscout：ui serve 配置错误：{error}", file=sys.stderr)
+        return 1
     return 0
 
 

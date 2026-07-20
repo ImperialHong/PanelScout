@@ -10,6 +10,11 @@ from panelscout.downloader.planner import (
     infer_image_extension,
     safe_path_segment,
 )
+from panelscout.downloader.status import (
+    ChapterDownloadStatus,
+    DownloadedFileStatus,
+    read_chapter_download_status,
+)
 from panelscout.downloader.workflow import (
     ChapterDownloadPlanResult,
     ChapterDownloadSaveResult,
@@ -21,10 +26,12 @@ from panelscout.downloader.workflow import (
 __all__ = [
     "ChapterDownloadPlanResult",
     "ChapterDownloadSaveResult",
+    "ChapterDownloadStatus",
     "DownloadImageCandidate",
     "DownloadPlan",
     "DownloadPlanItem",
     "DownloadSaveItemResult",
+    "DownloadedFileStatus",
     "FetchedImage",
     "ImageFetcher",
     "NonImageContentError",
@@ -32,6 +39,7 @@ __all__ = [
     "infer_image_extension",
     "parse_public_chapter_images",
     "plan_public_chapter_download",
+    "read_chapter_download_status",
     "safe_path_segment",
     "save_public_chapter_download",
 ]

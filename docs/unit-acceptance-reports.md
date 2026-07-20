@@ -724,3 +724,130 @@ Validation summary:
 - `git diff --check` passed.
 - Boundary scan found only expected historical `/downloads` Unit 23 notes, author-field matches, fixture/config `session_dir` references, and negative no-login/no-bypass/no-background wording.
 - No live network, real source image downloads, login/auth/session/cookie workflow, browser automation, paid/VIP bypass, referer spoofing, source restriction bypass, or background queue was introduced.
+
+### Unit 25: UI Download Status Import
+
+Status: accepted
+
+Validation owner: Agent2 and Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/downloader/__init__.py`
+- `src/panelscout/downloader/status.py`
+- `src/panelscout/ui/api.py`
+- `tests/test_ui_api.py`
+
+Validation summary:
+
+- Added reusable local download status reading for the accepted folder layout: `download_root/漫画名/章节名/001.ext`.
+- Status reads distinguish `not_started`, `empty`, `partial`, and `complete` without fetching chapter HTML or image bytes.
+- Complete image files and `.part` files are counted separately and returned with Chinese UI labels.
+- The status reader uses the same filename-safe comic/chapter path rules as the downloader planner.
+- Fixture tests cover complete and partial status reads from temporary directories.
+- No live network, browser automation, login/auth/session/cookie workflow, referer spoofing, bypass behavior, or background queue was introduced.
+
+### Unit 26: Local UI Runner/API
+
+Status: accepted
+
+Validation owner: Agent2 and Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/ui/__init__.py`
+- `src/panelscout/ui/api.py`
+- `src/panelscout/ui/app_shell.py`
+- `src/panelscout/ui/server.py`
+- `tests/test_cli.py`
+- `tests/test_ui_api.py`
+- `tests/test_ui_runner.py`
+
+Validation summary:
+
+- Added `panelscout ui serve`, a foreground local HTTP runner for the interactive Chinese UI.
+- The runner binds only to `127.0.0.1` and rejects public host values such as `0.0.0.0` before binding.
+- The HTTP app is directly testable without opening a socket.
+- JSON errors are returned with clear local messages for invalid JSON, blank inputs, missing local database, and unsupported routes.
+- The runner uses direct PanelScout workflow calls, not shell subprocess calls to the CLI.
+- The runner does not start automatically from `ui build`, does not run as a daemon, and does not create a queue/threading scheduler.
+
+### Unit 27: UI Search/Save and Detail Sync Bridge
+
+Status: accepted
+
+Validation owner: Agent2 and Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/ui/api.py`
+- `src/panelscout/ui/app_shell.py`
+- `tests/test_ui_api.py`
+- `tests/test_ui_runner.py`
+
+Validation summary:
+
+- Added local API methods and UI actions for public search/save and public detail/chapter sync.
+- The interactive UI exposes Chinese controls for search, local library selection, source comic id, and detail sync.
+- UI JavaScript calls only local runner endpoints such as `/api/search`, `/api/sync`, and `/api/state`; it does not call third-party websites directly from the browser.
+- Search and sync use the existing robots-aware fetcher path by default and fixture fetchers in tests.
+- Saved search/sync results refresh local UI state from SQLite.
+- Dynamic site data is rendered with DOM text nodes instead of raw HTML injection.
+
+### Unit 28: UI Download Plan/Run Bridge
+
+Status: accepted
+
+Validation owner: Agent2 and Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/ui/api.py`
+- `src/panelscout/ui/app_shell.py`
+- `tests/test_ui_api.py`
+- `tests/test_ui_runner.py`
+
+Validation summary:
+
+- Added local API methods and UI actions for explicit `download plan` and `download run` behavior.
+- The interactive UI sends the selected saved comic, selected chapter, output root, and permission note to local endpoints only.
+- Download planning previews the accepted folder layout without fetching image bytes.
+- Download running reuses the accepted downloader workflow, writes through `.part` files, and returns saved/skipped/failed item results.
+- Permission note remains required before planning or running a download.
+- Fixture tests cover the UI API line through saved output files `001.jpg`, `002.png`, `003.png`, and `004.webp`.
+
+### Unit 29: UI Download Status Readout
+
+Status: accepted
+
+Validation owner: Agent2 and Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/ui/api.py`
+- `src/panelscout/ui/app_shell.py`
+- `src/panelscout/ui/server.py`
+- `tests/test_ui_api.py`
+- `tests/test_ui_runner.py`
+
+Validation summary:
+
+- Added `/api/download/status` and a Chinese UI status action for the selected local chapter.
+- Download status can be read after a run or independently from existing local files.
+- The run response includes the latest local download status snapshot.
+- Focused UI/API/CLI tests passed with 42 tests.
+- Full `unittest discover` passed with 109 tests.
+- `compileall` passed for `src` and `tests`.
+- Boundary scan found only expected matches: public-host rejection tests, foreground local `serve_forever`, historical design/auth/session placeholders, `session_dir` fixture paths, author-field text, and negative no-login/no-bypass/no-background wording.
+- No live network, real source image downloads, login/auth/session/cookie workflow, browser automation, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.
