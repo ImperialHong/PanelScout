@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.11
+Version: 0.12
 
 Date: 2026-07-20
 
@@ -322,9 +322,10 @@ Unit 1 accepted scope:
 
 - Public/anonymous detail sync only.
 - Detail page parsing. Status: baseline completed in Unit 8.
-- Chapter metadata parsing.
+- Chapter metadata parsing. Status: baseline completed in Unit 8 and exposed through CLI in Unit 9.
 - Comic and chapter upsert logic. Status: baseline completed in Unit 8.
 - Update detection. Status: baseline `new_chapter_count` completed in Unit 8; richer reports pending.
+- `sync` command. Status: baseline completed in Unit 9; default dry-run, `--save` persists to SQLite.
 - Authenticated Session Mode is explicitly out of MVP 2 and remains MVP 5.
 
 ### MVP 3: Watchlist
@@ -694,6 +695,36 @@ Validation summary:
 - Full `unittest discover` passed with 45 tests.
 - `compileall` passed for `src` and `tests`.
 - No live network, auth, browser, downloader, or CLI live sync behavior was introduced.
+
+### Unit 9: Safe CLI Sync Integration
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/crawler/__init__.py`
+- `src/panelscout/crawler/engine.py`
+- `tests/test_cli.py`
+
+Validation summary:
+
+- `panelscout sync REF` is wired to public/anonymous detail sync.
+- `REF` may be a source comic id, relative details path, or public ZaiManHua details URL.
+- Default `sync` is a dry-run using in-memory SQLite and does not create user-home database directories.
+- `panelscout sync REF --save` persists detail metadata and visible chapters to the configured SQLite database.
+- Saved sync is idempotent: repeated sync does not duplicate comic or chapter records.
+- Blank and invalid references are rejected before fetcher creation.
+- Robots loading failure fails closed with a clear non-zero CLI result.
+- Tests use injected fake fetchers and local fixtures only.
+- CLI focused tests passed with 11 tests.
+- Full `unittest discover` passed with 49 tests.
+- `compileall` passed for `src` and `tests`.
+- No live network, auth, browser, downloader, or image/content crawling behavior was introduced.
 
 ## 16. Open Questions
 

@@ -15,6 +15,7 @@ from panelscout.crawler.fetcher import (
 from panelscout.crawler.engine import (
     PublicDetailSyncResult,
     PublicSearchResult,
+    normalize_detail_reference,
     search_public_comics,
     sync_public_detail,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "RobotsLoadError",
     "RobotsPolicy",
     "load_robots_policy",
+    "normalize_detail_reference",
     "search_public_comics",
     "sync_public_detail",
 ]

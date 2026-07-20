@@ -1,7 +1,7 @@
 """Small public metadata workflow services.
 
 The functions here compose existing adapter, fetcher, parser, and storage
-pieces. They do not create live CLI commands, authenticate, or download content.
+pieces. They do not authenticate, run browsers, or download content.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def sync_public_detail(
     content downloading.
     """
 
-    source_comic_id, detail_url = _normalize_detail_reference(reference)
+    _source_comic_id, detail_url = normalize_detail_reference(reference)
     response = fetcher.fetch_html(detail_url)
     parsed_detail = parse_detail_page(_response_text(response), detail_url=detail_url)
 
@@ -130,7 +130,9 @@ def _response_text(response: Any) -> str:
     raise TypeError("fetch_html() must return HTML text or an object with .text")
 
 
-def _normalize_detail_reference(reference: str | int) -> tuple[str, str]:
+def normalize_detail_reference(reference: str | int) -> tuple[str, str]:
+    """Return the source comic id and canonical public details URL for a reference."""
+
     raw_reference = str(reference).strip()
     if not raw_reference:
         raise ValueError("Detail reference cannot be blank")

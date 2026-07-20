@@ -17,7 +17,9 @@ from panelscout.crawler import (
     RobotsDisallowedError,
     RobotsLoadError,
     load_robots_policy,
+    normalize_detail_reference,
     search_public_comics,
+    sync_public_detail,
 )
 from panelscout.exporters import (
     export_comics_csv,
@@ -69,8 +71,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     search_parser.set_defaults(handler=_handle_search)
 
-    sync_parser = subparsers.add_parser("sync", help="Refresh saved metadata.")
-    sync_parser.set_defaults(handler=_handle_placeholder)
+    sync_parser = subparsers.add_parser("sync", help="Refresh public comic details.")
+    sync_parser.add_argument("reference", nargs="?", help="Source comic id or details URL.")
+    sync_parser.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+    sync_parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save synced details and chapters to the configured SQLite database.",
+    )
+    sync_parser.set_defaults(handler=_handle_sync)
 
     watch_parser = subparsers.add_parser("watch", help="Check watched comics.")
     watch_parser.set_defaults(handler=_handle_placeholder)
@@ -91,7 +104,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None, *, search_fetcher_factory=None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    search_fetcher_factory=None,
+    sync_fetcher_factory=None,
+) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -107,6 +125,8 @@ def main(argv: Sequence[str] | None = None, *, search_fetcher_factory=None) -> i
         config = load_config(args.config)
         if args.command == "search" and search_fetcher_factory is not None:
             args.search_fetcher_factory = search_fetcher_factory
+        if args.command == "sync" and sync_fetcher_factory is not None:
+            args.sync_fetcher_factory = sync_fetcher_factory
         handler = getattr(args, "handler", None)
         if handler is None:
             parser.print_help()
@@ -174,7 +194,59 @@ def _handle_search(args: argparse.Namespace, config) -> int:
     return 0
 
 
+def _handle_sync(args: argparse.Namespace, config) -> int:
+    reference = (args.reference or "").strip()
+    if not reference:
+        print("panelscout: sync reference cannot be blank", file=sys.stderr)
+        return 1
+
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported sync source '{source}'", file=sys.stderr)
+        return 1
+
+    try:
+        normalize_detail_reference(reference)
+    except ValueError as error:
+        print(f"panelscout: sync reference invalid: {error}", file=sys.stderr)
+        return 1
+
+    factory = getattr(args, "sync_fetcher_factory", None) or _create_sync_fetcher
+    try:
+        fetcher = factory(config)
+        database_path = config.database_path if args.save else ":memory:"
+        with connect_database(database_path) as connection:
+            result = sync_public_detail(
+                reference,
+                fetcher,
+                ComicRepository(connection),
+            )
+    except RobotsLoadError as error:
+        print(f"panelscout: robots policy unavailable; sync aborted: {error}", file=sys.stderr)
+        return 1
+    except RobotsDisallowedError as error:
+        print(f"panelscout: robots policy disallowed sync: {error}", file=sys.stderr)
+        return 1
+    except FetchError as error:
+        print(f"panelscout: sync fetch failed: {error}", file=sys.stderr)
+        return 1
+    except ValueError as error:
+        print(f"panelscout: sync failed: {error}", file=sys.stderr)
+        return 1
+
+    print(_format_sync_result(result, saved=args.save))
+    return 0
+
+
 def _create_search_fetcher(config):
+    robots_policy = load_robots_policy(
+        build_robots_url(),
+        user_agent=config.user_agent,
+    )
+    return HtmlFetcher(config=config, robots_policy=robots_policy)
+
+
+def _create_sync_fetcher(config):
     robots_policy = load_robots_policy(
         build_robots_url(),
         user_agent=config.user_agent,
@@ -204,6 +276,39 @@ def _format_search_result(result, *, saved: bool) -> str:
         lines.append(f"   id: {comic.source_comic_id}")
         if comic.detail_url:
             lines.append(f"   url: {comic.detail_url}")
+    return "\n".join(lines)
+
+
+def _format_sync_result(result, *, saved: bool) -> str:
+    comic = result.comic
+    lines = [
+        f"Synced detail: {comic.title}",
+        f"Source URL: {result.detail_url}",
+        f"id: {comic.source_comic_id}",
+    ]
+    if comic.author:
+        lines.append(f"Author: {comic.author}")
+    if comic.status:
+        lines.append(f"Status: {comic.status}")
+    if comic.latest_chapter_title:
+        lines.append(f"Latest: {comic.latest_chapter_title}")
+    lines.extend(
+        [
+            f"Chapters: {result.chapter_count}",
+            f"New chapters: {result.new_chapter_count}",
+            f"Saved: {'yes' if saved else 'no (dry run)'}",
+            "",
+        ]
+    )
+
+    if not result.chapters:
+        lines.append("No visible chapters found.")
+        return "\n".join(lines)
+
+    lines.append("Visible chapters:")
+    for index, chapter in enumerate(result.chapters, start=1):
+        lines.append(f"{index}. {chapter.title}")
+        lines.append(f"   url: {chapter.chapter_url}")
     return "\n".join(lines)
 
 
