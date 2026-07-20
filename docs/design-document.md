@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.3
+Version: 0.4
 
 Date: 2026-07-20
 
@@ -302,7 +302,7 @@ Pause on expiration, CAPTCHA, 403, 429, or policy uncertainty
 
 - Project skeleton. Status: completed in Unit 1.
 - Config file. Status: baseline completed in Unit 1.
-- SQLite database. Status: pending.
+- SQLite database. Status: baseline completed in Unit 2.
 - `search` command. Status: placeholder completed in Unit 1; real metadata search pending.
 - List/search page parsing. Status: pending.
 - Basic export. Status: pending.
@@ -478,6 +478,33 @@ Validation summary:
 - CLI help, version, config display, and placeholder search commands passed.
 - No network, crawler, login, or downloader behavior was introduced.
 - Python 3.12+ is required by the project. The host default `python3` may be older, so local checks should use a Python 3.12+ interpreter.
+
+### Unit 2: SQLite Storage Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/storage/__init__.py`
+- `src/panelscout/storage/database.py`
+- `src/panelscout/storage/models.py`
+- `src/panelscout/storage/repositories.py`
+- `tests/test_storage.py`
+
+Validation summary:
+
+- SQLite schema initialization covers `comics`, `chapters`, `crawl_jobs`, `crawl_logs`, and `auth_sessions`.
+- Foreign keys are enabled and validated.
+- Schema initialization is idempotent.
+- Repository helpers support comic upsert, chapter upsert, stored comic listing, and stored comic search.
+- Storage tests use temporary or in-memory databases and do not write to user home.
+- `unittest discover` passed with 13 tests.
+- `compileall` passed for `src` and `tests`.
+- No network, crawler, login, or downloader behavior was introduced.
 
 ## 16. Open Questions
 
