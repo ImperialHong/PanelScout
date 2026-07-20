@@ -12,6 +12,7 @@ from panelscout.crawler.fetcher import (
     HtmlFetcher,
     NonHtmlContentError,
 )
+from panelscout.crawler.engine import PublicSearchResult, search_public_comics
 from panelscout.crawler.robots import RobotsDisallowedError, RobotsPolicy
 
 __all__ = [
@@ -21,6 +22,8 @@ __all__ = [
     "FetchedHtml",
     "HtmlFetcher",
     "NonHtmlContentError",
+    "PublicSearchResult",
     "RobotsDisallowedError",
     "RobotsPolicy",
+    "search_public_comics",
 ]

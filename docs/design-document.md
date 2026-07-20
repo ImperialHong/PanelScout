@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.7
+Version: 0.8
 
 Date: 2026-07-20
 
@@ -303,7 +303,7 @@ Pause on expiration, CAPTCHA, 403, 429, or policy uncertainty
 - Project skeleton. Status: completed in Unit 1.
 - Config file. Status: baseline completed in Unit 1.
 - SQLite database. Status: baseline completed in Unit 2.
-- `search` command. Status: placeholder completed in Unit 1; real metadata search pending.
+- `search` command. Status: placeholder completed in Unit 1; public search workflow service completed in Unit 6; live CLI wiring pending.
 - List/search page parsing. Status: baseline completed in Unit 4.
 - Basic export. Status: baseline completed in Unit 3.
 
@@ -598,6 +598,34 @@ Validation summary:
 Future note:
 
 - When robots loading is added, unknown or unavailable robots state should fail closed or require an explicit user-visible override for local development.
+
+### Unit 6: Public Search Workflow Service
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/crawler/__init__.py`
+- `src/panelscout/crawler/engine.py`
+- `tests/test_search_workflow.py`
+
+Validation summary:
+
+- Search workflow accepts a query and an injected fetcher-like object.
+- Search workflow builds the encoded ZaiManHua `/dynamic/{query}` URL.
+- Search workflow parses fixture HTML through the Unit 4 parser.
+- Known public fixture record validated: `伪恋同盟`, source comic id `15599`, author `榊葵/绫乃`, latest chapter `第112话`.
+- Optional repository persistence upserts parsed comics into an in-memory SQLite database.
+- Blank queries are rejected before any fetcher call.
+- CLI `search` remains a no-network placeholder.
+- Unit 6 focused tests passed with 3 tests.
+- Full `unittest discover` passed with 37 tests.
+- `compileall` passed for `src` and `tests`.
+- No live network, login, browser, downloader, or CLI live search behavior was introduced.
 
 ## 16. Open Questions
 
