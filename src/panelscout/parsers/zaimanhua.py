@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
 import re
+from urllib.parse import urlparse
 
 from panelscout.adapters.zaimanhua import (
     SOURCE_NAME,
@@ -334,7 +335,8 @@ def _extract_id_from_html(html: str) -> str | None:
 
 
 def _extract_source_chapter_id(href: str) -> str | None:
-    parts = [part for part in href.split("/") if part]
+    path = urlparse(href).path if "://" in href else href
+    parts = [part for part in path.split("/") if part]
     if len(parts) >= 3 and parts[0] == "view":
         return parts[2]
     return None

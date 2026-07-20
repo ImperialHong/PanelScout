@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.10
+Version: 0.11
 
 Date: 2026-07-20
 
@@ -321,10 +321,10 @@ Unit 1 accepted scope:
 ### MVP 2: Detail Sync
 
 - Public/anonymous detail sync only.
-- Detail page parsing.
+- Detail page parsing. Status: baseline completed in Unit 8.
 - Chapter metadata parsing.
-- Comic and chapter upsert logic.
-- Update detection.
+- Comic and chapter upsert logic. Status: baseline completed in Unit 8.
+- Update detection. Status: baseline `new_chapter_count` completed in Unit 8; richer reports pending.
 - Authenticated Session Mode is explicitly out of MVP 2 and remains MVP 5.
 
 ### MVP 3: Watchlist
@@ -662,6 +662,38 @@ Validation summary:
 - Full `unittest discover` passed with 42 tests.
 - `compileall` passed for `src` and `tests`.
 - No auth, browser, downloader, detail sync, or chapter crawling behavior was introduced.
+
+### Unit 8: Public Detail Sync Workflow Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/crawler/__init__.py`
+- `src/panelscout/crawler/engine.py`
+- `src/panelscout/parsers/zaimanhua.py`
+- `tests/test_detail_sync_workflow.py`
+- `tests/fixtures/zaimanhua/details_15599_with_chapters.html`
+
+Validation summary:
+
+- `sync_public_detail` accepts a source comic id, relative details path, or public ZaiManHua details URL.
+- Detail references are normalized to canonical public details URLs.
+- The workflow requires an injected fetcher and does not instantiate a live network client.
+- The workflow parses public detail metadata through the existing detail parser.
+- The workflow upserts the comic into SQLite through `ComicRepository`.
+- The workflow upserts visible parsed chapters and avoids duplicate chapter records.
+- `new_chapter_count` reports newly observed chapters and is idempotent on repeat sync.
+- Invalid references are rejected before any fetcher call.
+- `panelscout sync` remains a no-network placeholder.
+- Unit 8 focused tests passed with 3 tests.
+- Full `unittest discover` passed with 45 tests.
+- `compileall` passed for `src` and `tests`.
+- No live network, auth, browser, downloader, or CLI live sync behavior was introduced.
 
 ## 16. Open Questions
 
