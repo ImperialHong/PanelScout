@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import sys
 from typing import Sequence
 
 from panelscout import __version__
 from panelscout.config import ConfigError, load_config
+from panelscout.exporters import (
+    export_comics_csv,
+    export_comics_json,
+    export_comics_markdown,
+)
+from panelscout.storage import ComicRepository, connect_database
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,7 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="json",
         help="Export format.",
     )
-    export_parser.set_defaults(handler=_handle_placeholder)
+    export_parser.add_argument(
+        "--output",
+        help="Optional output file. Defaults to stdout.",
+    )
+    export_parser.set_defaults(handler=_handle_export)
 
     return parser
 
@@ -108,6 +119,39 @@ def _handle_placeholder(args: argparse.Namespace, config) -> int:
         f"in this Unit 1 skeleton. Source: {source}. No network request was made."
     )
     return 0
+
+
+def _handle_export(args: argparse.Namespace, config) -> int:
+    comics = _load_export_comics(config.database_path)
+
+    rendered = _render_export(comics, args.format)
+
+    if args.output:
+        output_path = Path(args.output).expanduser()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(rendered, encoding="utf-8")
+    else:
+        print(rendered, end="" if rendered.endswith("\n") else "\n")
+
+    return 0
+
+
+def _load_export_comics(database_path: Path) -> list:
+    if str(database_path) != ":memory:" and not Path(database_path).expanduser().exists():
+        return []
+
+    with connect_database(database_path) as connection:
+        return ComicRepository(connection).list_comics(limit=500)
+
+
+def _render_export(comics, export_format: str) -> str:
+    if export_format == "json":
+        return export_comics_json(comics)
+    if export_format == "csv":
+        return export_comics_csv(comics)
+    if export_format == "markdown":
+        return export_comics_markdown(comics)
+    raise ValueError(f"Unsupported export format: {export_format}")
 
 
 if __name__ == "__main__":

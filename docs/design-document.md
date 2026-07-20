@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.4
+Version: 0.5
 
 Date: 2026-07-20
 
@@ -305,7 +305,7 @@ Pause on expiration, CAPTCHA, 403, 429, or policy uncertainty
 - SQLite database. Status: baseline completed in Unit 2.
 - `search` command. Status: placeholder completed in Unit 1; real metadata search pending.
 - List/search page parsing. Status: pending.
-- Basic export. Status: pending.
+- Basic export. Status: baseline completed in Unit 3.
 
 Unit 1 accepted scope:
 
@@ -505,6 +505,34 @@ Validation summary:
 - `unittest discover` passed with 13 tests.
 - `compileall` passed for `src` and `tests`.
 - No network, crawler, login, or downloader behavior was introduced.
+
+### Unit 3: Exporter Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/exporters/__init__.py`
+- `src/panelscout/exporters/_records.py`
+- `src/panelscout/exporters/json_exporter.py`
+- `src/panelscout/exporters/csv_exporter.py`
+- `src/panelscout/exporters/markdown_exporter.py`
+- `tests/test_exporters.py`
+
+Validation summary:
+
+- JSON, CSV, and Markdown exports work from stored comic metadata.
+- Export output is deterministic enough for tests and preserves tuple fields such as categories and tags.
+- `panelscout export --format json|csv|markdown` can export from an explicitly configured SQLite database.
+- Default export with a missing database returns an empty result without creating user-home database directories.
+- `unittest discover` passed with 20 tests.
+- `compileall` passed for `src` and `tests`.
+- No network, crawler, parser, login, or downloader behavior was introduced.
 
 ## 16. Open Questions
 
