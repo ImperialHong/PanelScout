@@ -691,3 +691,36 @@ Validation summary:
 - `git diff --check` passed.
 - Boundary scan found only expected author-field matches, fixture/config `session_dir` references, and negative no-login/no-bypass/no-background wording.
 - No login/auth/session/cookie workflow, browser automation, paid/VIP bypass, referer spoofing, source restriction bypass, or background queue was introduced.
+
+### Unit 24: macOS Downloads Default and Smoke Test
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/config.py`
+- `src/panelscout/ui/state.py`
+- `src/panelscout/ui/shell.py`
+- `tests/test_config.py`
+- `tests/test_ui.py`
+- `tests/test_cli.py`
+- `docs/design-document.md`
+
+Validation summary:
+
+- Changed the default configured `download_root` from `/downloads` to the macOS default Downloads folder, `~/Downloads`.
+- Runtime config expands the default to the current user's Downloads directory, for example `/Users/jay/Downloads`.
+- The Chinese static UI now renders the macOS Downloads default in the settings field, folder preview, and command previews.
+- `panelscout download plan/run` still accepts explicit `--output-root`, and when omitted uses the configured default.
+- CLI smoke test omitted `--output-root` and used fixture HTML plus fake image bytes; it saved 4 files to `/Users/jay/Downloads/PanelScout下载测试/第001话 测试下载 20260720225638/`.
+- Smoke test output files: `001.jpg`, `002.png`, `003.png`, and `004.webp`.
+- Focused config/UI/CLI tests passed with 41 tests.
+- Full `unittest discover` passed with 97 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Boundary scan found only expected historical `/downloads` Unit 23 notes, author-field matches, fixture/config `session_dir` references, and negative no-login/no-bypass/no-background wording.
+- No live network, real source image downloads, login/auth/session/cookie workflow, browser automation, paid/VIP bypass, referer spoofing, source restriction bypass, or background queue was introduced.

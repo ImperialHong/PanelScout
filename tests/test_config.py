@@ -13,7 +13,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.source, "zaimanhua")
         self.assertEqual(config.database_path.name, "panelscout.sqlite3")
         self.assertEqual(config.session_dir.name, "sessions")
-        self.assertEqual(config.download_root, Path("/downloads"))
+        self.assertEqual(config.download_root, Path.home() / "Downloads")
         self.assertGreaterEqual(config.request_delay_seconds, 1)
         self.assertEqual(config.max_concurrency_per_domain, 1)
 
@@ -39,7 +39,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.data_dir, data_dir)
         self.assertEqual(config.database_path, data_dir / "panelscout.sqlite3")
         self.assertEqual(config.session_dir, data_dir / "sessions")
-        self.assertEqual(config.download_root, Path("/downloads"))
+        self.assertEqual(config.download_root, Path.home() / "Downloads")
         self.assertEqual(config.request_delay_seconds, 1.5)
         self.assertEqual(config.max_concurrency_per_domain, 2)
 

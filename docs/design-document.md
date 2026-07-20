@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.25
+Version: 0.26
 
 Date: 2026-07-20
 
@@ -174,13 +174,14 @@ Current CLI baseline:
 - Unit 21 added `panelscout download run` to explicitly save selected public chapter images.
 - Unit 22 validated the minimum line from search/save through sync/chapter selection to local image save.
 - Unit 23 added Chinese UI command previews and changed the default configured download root to `/downloads`.
+- Unit 24 changed the default configured download root to the macOS default Downloads folder, `~/Downloads`.
 
 Default download root:
 
-- `download_root` defaults to `/downloads`.
+- `download_root` defaults to `~/Downloads`, expanded at runtime to the current macOS user's Downloads folder, for example `/Users/jay/Downloads`.
 - Users may override it in config with `[paths] download_root = "/some/path"`.
 - CLI `download plan` and `download run` use the configured `download_root` when `--output-root` is omitted.
-- On systems where `/downloads` is not writable, execution fails cleanly and the user must provide a writable path or create a writable `/downloads` mount/path outside PanelScout.
+- On systems where the configured download root is not writable, execution fails cleanly and the user must provide or create a writable path outside PanelScout.
 
 Rules:
 
@@ -199,7 +200,7 @@ Rules:
 Output layout:
 
 ```text
-/downloads/
+~/Downloads/
   Manga Title/
     Chapter Title/
       001.jpg
@@ -212,7 +213,7 @@ Naming rules:
 
 - The top-level manga directory is required so future chapter downloads for the same title share one local folder.
 - Each chapter gets its own subdirectory under the manga directory.
-- Default directory format: `/downloads/comic_title/chapter_title/`.
+- Default directory format: `~/Downloads/comic_title/chapter_title/`.
 - If `download_root` is overridden, directory format becomes `download_root/comic_title/chapter_title/`.
 - Image file format: `page_number.ext`.
 - Page numbers are zero-padded from `001`.
@@ -442,10 +443,11 @@ MVP 4 current implementation note:
 - Unit 16 reads the configured local SQLite database when it exists and renders saved catalog, chapter, watchlist, watch schedule, and local summary data into that static shell.
 - Unit 17 makes the static local UI's user-visible copy Chinese by default, including navigation, headings, tables, buttons, empty states, disabled download text, core accessibility labels, and UI build output.
 - Units 18-22 complete the CLI-level minimum search-to-download line, but the static UI still does not execute downloads directly.
-- Unit 23 renders `/downloads` as the default download root and shows copyable `panelscout download plan/run` command previews for the selected local chapter.
+- Unit 23 renders copyable `panelscout download plan/run` command previews for the selected local chapter.
+- Unit 24 renders the macOS default Downloads folder as the default download root.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The current UI shell is a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
-- Download action buttons are visible for planning but disabled, and the folder preview follows `/downloads/漫画名/章节名/001.jpg`.
+- Download action buttons are visible for planning but disabled, and the folder preview follows `~/Downloads/漫画名/章节名/001.jpg` or the expanded configured download root.
 
 ### MVP 5: Authenticated Session Mode
 
@@ -578,9 +580,9 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 23.
+Current accepted range: Unit 1 through Unit 24.
 
-Latest accepted Unit: Unit 23, UI Download Command Bridge and `/downloads` Default.
+Latest accepted Unit: Unit 24, macOS Downloads Default and Smoke Test.
 
 High-level milestone status:
 
@@ -598,9 +600,10 @@ Current priority: resume MVP 4 UI wiring on top of the accepted minimum search-t
 Planned next Units:
 
 - Unit 23: UI download command bridge. Status: accepted; no direct UI execution.
-- Unit 24: UI download status import. Read locally generated download folders and show saved/missing/failed counts for selected chapters.
-- Unit 25: UI-to-local-runner decision. Decide whether MVP 4 stays static-command-driven or adds a local-only service runner; any runner must remain explicit, local, and disabled until launched by the user.
-- Unit 26+: UX polish for search/detail/download flow after the UI has a safe path to the accepted CLI behavior.
+- Unit 24: macOS Downloads default and smoke test. Status: accepted.
+- Unit 25: UI download status import. Read locally generated download folders and show saved/missing/failed counts for selected chapters.
+- Unit 26: UI-to-local-runner decision. Decide whether MVP 4 stays static-command-driven or adds a local-only service runner; any runner must remain explicit, local, and disabled until launched by the user.
+- Unit 27+: UX polish for search/detail/download flow after the UI has a safe path to the accepted CLI behavior.
 
 ## 17. Open Questions
 

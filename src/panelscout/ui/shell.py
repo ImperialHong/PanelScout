@@ -27,7 +27,7 @@ NAV_ANCHORS = {
     "设置": "settings",
 }
 
-DEFAULT_DOWNLOAD_ROOT = "/downloads"
+DEFAULT_DOWNLOAD_ROOT = "~/Downloads"
 DOWNLOAD_LAYOUT_PREVIEW = f"{DEFAULT_DOWNLOAD_ROOT}/漫画名/001话/001.jpg"
 DOWNLOAD_PERMISSION_NOTE = "用户确认该公开章节可用于个人本地归档。"
 
@@ -533,9 +533,9 @@ def _render_comic_meta(comic: UiComic, *, include_source_id: bool) -> str:
 
 
 def _download_preview(state: LocalUiState) -> str:
-    if state.selected_comic is None:
-        return DOWNLOAD_LAYOUT_PREVIEW
     root = _download_root(state)
+    if state.selected_comic is None:
+        return f"{root}/漫画名/001话/001.jpg"
     comic_name = _path_segment(state.selected_comic.title, fallback="漫画名")
     chapter_name = (
         _path_segment(state.chapters[0].title, fallback="001话")

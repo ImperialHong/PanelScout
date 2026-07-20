@@ -10,7 +10,7 @@ from typing import Any
 
 APP_NAME = "panelscout"
 DEFAULT_USER_AGENT = "PanelScout/0.1 (metadata-only; local use)"
-DEFAULT_DOWNLOAD_ROOT = Path("/downloads")
+DEFAULT_DOWNLOAD_ROOT = Path("~/Downloads")
 SUPPORTED_SOURCES = ("zaimanhua",)
 
 
@@ -66,7 +66,7 @@ def default_config() -> PanelScoutConfig:
         database_path=data_dir / "panelscout.sqlite3",
         cache_dir=cache_home / APP_NAME,
         session_dir=data_dir / "sessions",
-        download_root=DEFAULT_DOWNLOAD_ROOT,
+        download_root=DEFAULT_DOWNLOAD_ROOT.expanduser(),
     )
 
 

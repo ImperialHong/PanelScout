@@ -929,10 +929,11 @@ class CliTests(unittest.TestCase):
         self.assertIn(">更新历史<", html)
         self.assertIn(">下载<", html)
         self.assertIn(">设置<", html)
-        self.assertIn("/downloads/漫画名/001话/001.jpg", html)
+        expected_download_root = fake_home / "Downloads"
+        self.assertIn(f"{expected_download_root}/漫画名/001话/001.jpg", html)
         self.assertIn("下载选中章节 - 规划中", html)
         self.assertIn("panelscout download plan SOURCE_COMIC_ID", html)
-        self.assertIn("--output-root /downloads", html)
+        self.assertIn(f"--output-root {expected_download_root}", html)
         self.assertIn("disabled", html)
         self.assertIn("本地库暂未保存漫画。", html)
         self.assertNotIn("Download selected chapters - planned", html)
@@ -1006,10 +1007,14 @@ class CliTests(unittest.TestCase):
         self.assertIn("https://manhua.zaimanhua.com/view/15599/1001.html", html)
         self.assertIn(">备注<", html)
         self.assertIn("read after UI pass", html)
-        self.assertIn("/downloads/伪恋同盟/第001话 背叛之后/001.jpg", html)
+        expected_download_root = Path.home() / "Downloads"
+        self.assertIn(
+            f"{expected_download_root}/伪恋同盟/第001话 背叛之后/001.jpg",
+            html,
+        )
         self.assertIn(
             "panelscout download run 15599 --chapter &#x27;第001话 背叛之后&#x27; "
-            "--output-root /downloads",
+            f"--output-root {expected_download_root}",
             html,
         )
         self.assertNotIn("海贼同人短篇合集", html)
@@ -1087,8 +1092,12 @@ class CliTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertEqual(stderr, "")
-        self.assertIn("Download root: /downloads", stdout)
-        self.assertIn("Chapter directory: /downloads/伪恋同盟/第001话 背叛之后", stdout)
+        expected_download_root = Path.home() / "Downloads"
+        self.assertIn(f"Download root: {expected_download_root}", stdout)
+        self.assertIn(
+            f"Chapter directory: {expected_download_root}/伪恋同盟/第001话 背叛之后",
+            stdout,
+        )
 
     def test_download_run_saves_explicit_chapter_images(self):
         chapter_fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(

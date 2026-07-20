@@ -176,7 +176,7 @@ def sample_local_ui_state() -> LocalUiState:
     )
     return LocalUiState(
         database_path="~/.local/share/panelscout/panelscout.sqlite3",
-        download_root="/downloads",
+        download_root="~/Downloads",
         source="zaimanhua",
         data_status="静态示例预览；未读取配置数据库。",
         comics=(first, second),

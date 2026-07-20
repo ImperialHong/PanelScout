@@ -42,7 +42,7 @@ class LocalUiShellTests(unittest.TestCase):
         self.assertIn("下载命令", html)
         self.assertIn("panelscout download plan 15599", html)
         self.assertIn("panelscout download run 15599", html)
-        self.assertIn("--output-root /downloads", html)
+        self.assertIn("--output-root &#x27;~/Downloads&#x27;", html)
         self.assertNotIn("Download selected chapters - planned", html)
         self.assertNotIn("Retry failed - planned", html)
         self.assertNotIn("planned/disabled", html)
@@ -133,10 +133,14 @@ class LocalUiShellTests(unittest.TestCase):
         self.assertIn(">备注<", html)
         self.assertIn(">priority<", html)
         self.assertIn("zaimanhua：每 120 分钟", html)
-        self.assertIn("/downloads/伪恋同盟/第001话 背叛之后/001.jpg", html)
+        expected_root = Path.home() / "Downloads"
+        self.assertIn(
+            f"{expected_root}/伪恋同盟/第001话 背叛之后/001.jpg",
+            html,
+        )
         self.assertIn(
             "panelscout download plan 15599 --chapter &#x27;第001话 背叛之后&#x27; "
-            "--output-root /downloads",
+            f"--output-root {expected_root}",
             html,
         )
         self.assertNotIn("海贼同人短篇合集", html)
@@ -158,7 +162,7 @@ class LocalUiShellTests(unittest.TestCase):
         self.assertIn("本地库暂未保存漫画。", html)
         self.assertIn("当前漫画暂无本地章节。", html)
         self.assertIn(">备注<", html)
-        self.assertIn(DOWNLOAD_LAYOUT_PREVIEW, html)
+        self.assertIn(f"{Path.home() / 'Downloads'}/漫画名/001话/001.jpg", html)
 
     def test_build_local_ui_state_initialized_empty_database_renders_empty_states(self):
         with TemporaryDirectory() as directory:
