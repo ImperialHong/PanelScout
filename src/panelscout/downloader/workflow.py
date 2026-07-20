@@ -100,7 +100,22 @@ def save_public_chapter_download(
         download_root=download_root,
         permission_note=permission_note,
     )
-    planned.plan.chapter_directory.mkdir(parents=True, exist_ok=True)
+    try:
+        planned.plan.chapter_directory.mkdir(parents=True, exist_ok=True)
+    except OSError as error:
+        return ChapterDownloadSaveResult(
+            comic=comic,
+            chapter=chapter,
+            plan=planned.plan,
+            items=tuple(
+                DownloadSaveItemResult(
+                    plan_item=item,
+                    status="failed",
+                    error=f"could not create chapter directory: {error}",
+                )
+                for item in planned.plan.items
+            ),
+        )
 
     results = []
     for item in planned.plan.items:

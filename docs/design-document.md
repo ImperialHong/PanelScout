@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.24
+Version: 0.25
 
 Date: 2026-07-20
 
@@ -25,7 +25,7 @@ The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryptio
 
 ## 2.1 Current Delivery Priority
 
-Current highest priority: complete the minimum search-to-download business line before expanding secondary features or UI polish.
+Current highest priority: expose the accepted minimum search-to-download business line through the Chinese local UI before expanding secondary features or deeper UI polish.
 
 The minimum business line is:
 
@@ -35,7 +35,7 @@ public search -> save comic -> public detail/chapter sync -> select chapter -> p
 
 Priority rules:
 
-- Search, detail sync, chapter selection, download planning, and opt-in local save take precedence over additional watchlist, reporting, UI polish, scheduling, or multi-site features.
+- Search, detail sync, chapter selection, download planning, opt-in local save, and UI command/status wiring take precedence over additional watchlist, reporting, scheduling, or multi-site features.
 - Downloader work must remain personal-use, permission-gated, conservative, resumable, and source-policy aware.
 - Public/anonymous content remains the current implementation path. Authenticated Session Mode stays in MVP 5 and must not block the anonymous minimum line.
 - The project must first produce a working CLI-level minimum line. UI improvements should mirror the CLI line only after the core behavior is stable.
@@ -173,6 +173,14 @@ Current CLI baseline:
 - Unit 20 added `panelscout download plan` to preview file paths without fetching image bytes.
 - Unit 21 added `panelscout download run` to explicitly save selected public chapter images.
 - Unit 22 validated the minimum line from search/save through sync/chapter selection to local image save.
+- Unit 23 added Chinese UI command previews and changed the default configured download root to `/downloads`.
+
+Default download root:
+
+- `download_root` defaults to `/downloads`.
+- Users may override it in config with `[paths] download_root = "/some/path"`.
+- CLI `download plan` and `download run` use the configured `download_root` when `--output-root` is omitted.
+- On systems where `/downloads` is not writable, execution fails cleanly and the user must provide a writable path or create a writable `/downloads` mount/path outside PanelScout.
 
 Rules:
 
@@ -191,7 +199,7 @@ Rules:
 Output layout:
 
 ```text
-download_root/
+/downloads/
   Manga Title/
     Chapter Title/
       001.jpg
@@ -204,7 +212,8 @@ Naming rules:
 
 - The top-level manga directory is required so future chapter downloads for the same title share one local folder.
 - Each chapter gets its own subdirectory under the manga directory.
-- Directory format: `download_root/comic_title/chapter_title/`.
+- Default directory format: `/downloads/comic_title/chapter_title/`.
+- If `download_root` is overridden, directory format becomes `download_root/comic_title/chapter_title/`.
 - Image file format: `page_number.ext`.
 - Page numbers are zero-padded from `001`.
 - `comic_title` and `chapter_title` must be filename-safe; replace `/ \ : * ? " < > |` and control characters.
@@ -394,14 +403,14 @@ Unit 1 accepted scope:
 
 ### MVP 4: Local UI
 
-MVP 4 was temporarily de-prioritized behind the minimum search-to-download business line. The CLI minimum line is now accepted through Unit 22, so the next MVP 4 work can resume by wiring the Chinese local UI to the accepted CLI download behavior.
+MVP 4 was temporarily de-prioritized behind the minimum search-to-download business line. The CLI minimum line is accepted through Unit 22, and Unit 23 begins wiring the Chinese local UI to the accepted CLI download behavior through command previews.
 
 - 搜索页。Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 本地库页。Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 漫画详情页。Status: static shell baseline completed in Unit 15; selected comic metadata and local chapter list binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 追更页。Status: static shell baseline completed in Unit 15; local watchlist entries, notes, and checked-status binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 更新历史页。Status: static shell baseline completed in Unit 15; local summary binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; persisted history stream pending.
-- 章节选择与本地下载页。Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; CLI download plan/run baseline completed in Units 20-21; UI execution wiring pending.
+- 章节选择与本地下载页。Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; CLI download plan/run baseline completed in Units 20-21; UI command bridge completed in Unit 23; direct UI execution pending.
 - 下载队列/状态页。Status: static shell baseline completed in Unit 15; Chinese UI copy baseline completed in Unit 17; queue engine pending.
 - 下载设置页。Status: static shell baseline completed in Unit 15; database path binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; settings persistence pending.
 
@@ -433,9 +442,10 @@ MVP 4 current implementation note:
 - Unit 16 reads the configured local SQLite database when it exists and renders saved catalog, chapter, watchlist, watch schedule, and local summary data into that static shell.
 - Unit 17 makes the static local UI's user-visible copy Chinese by default, including navigation, headings, tables, buttons, empty states, disabled download text, core accessibility labels, and UI build output.
 - Units 18-22 complete the CLI-level minimum search-to-download line, but the static UI still does not execute downloads directly.
+- Unit 23 renders `/downloads` as the default download root and shows copyable `panelscout download plan/run` command previews for the selected local chapter.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The current UI shell is a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
-- Download action buttons are visible for planning but disabled, and the folder preview follows `download_root/漫画名/章节名/001.jpg`.
+- Download action buttons are visible for planning but disabled, and the folder preview follows `/downloads/漫画名/章节名/001.jpg`.
 
 ### MVP 5: Authenticated Session Mode
 
@@ -568,9 +578,9 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 22.
+Current accepted range: Unit 1 through Unit 23.
 
-Latest accepted Unit: Unit 22, End-to-End Minimum Line Validation.
+Latest accepted Unit: Unit 23, UI Download Command Bridge and `/downloads` Default.
 
 High-level milestone status:
 
@@ -578,7 +588,7 @@ High-level milestone status:
 - MVP 2: Public detail sync, chapter metadata upsert, safe CLI sync integration, richer sync result, and report output are accepted. Authenticated Session Mode remains deferred to MVP 5.
 - MVP 3: Local watchlist, public watch update checks, Markdown watch reports, and local suggested watch schedule baseline are accepted.
 - Minimum search-to-download line: Search, save, public detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level.
-- MVP 4: Static local UI shell, local SQLite data binding, and Chinese UI copy baseline are accepted. Next work should expose the accepted minimum line through the local UI without adding auth or background queues.
+- MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, and UI command bridge for accepted CLI download behavior are accepted. Direct UI execution remains pending.
 - MVP 5: Authenticated Session Mode is not started.
 
 ## 16. Next Unit Plan
@@ -587,7 +597,7 @@ Current priority: resume MVP 4 UI wiring on top of the accepted minimum search-t
 
 Planned next Units:
 
-- Unit 23: UI download command bridge. Render selected chapter, output root, permission note, and copyable CLI command previews in Chinese without executing downloads from the static page.
+- Unit 23: UI download command bridge. Status: accepted; no direct UI execution.
 - Unit 24: UI download status import. Read locally generated download folders and show saved/missing/failed counts for selected chapters.
 - Unit 25: UI-to-local-runner decision. Decide whether MVP 4 stays static-command-driven or adds a local-only service runner; any runner must remain explicit, local, and disabled until launched by the user.
 - Unit 26+: UX polish for search/detail/download flow after the UI has a safe path to the accepted CLI behavior.

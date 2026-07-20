@@ -102,6 +102,28 @@ class DownloadWorkflowTests(unittest.TestCase):
         self.assertEqual(result.failed_count, 1)
         self.assertFalse(failed_target.exists())
 
+    def test_unavailable_download_directory_returns_failed_items(self):
+        fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(encoding="utf-8")
+        comic, chapter = _comic_and_chapter()
+
+        with TemporaryDirectory() as directory:
+            blocked_root = Path(directory) / "not-a-directory"
+            blocked_root.write_text("blocks directory creation", encoding="utf-8")
+
+            result = save_public_chapter_download(
+                comic=comic,
+                chapter=chapter,
+                chapter_fetcher=FakeHtmlFetcher({chapter.chapter_url: fixture}),
+                image_fetcher=FakeImageFetcher(),
+                download_root=blocked_root,
+                permission_note="用户确认该公开章节可用于个人本地归档。",
+            )
+
+        self.assertEqual(result.saved_count, 0)
+        self.assertEqual(result.skipped_count, 0)
+        self.assertEqual(result.failed_count, 4)
+        self.assertIn("could not create chapter directory", result.items[0].error)
+
     def test_end_to_end_minimum_line_with_fixtures_and_fake_fetchers(self):
         search_html = (FIXTURE_ROOT / "search_weisample.html").read_text(encoding="utf-8")
         detail_html = (FIXTURE_ROOT / "details_15599_with_chapters.html").read_text(encoding="utf-8")

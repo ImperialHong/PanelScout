@@ -929,8 +929,10 @@ class CliTests(unittest.TestCase):
         self.assertIn(">更新历史<", html)
         self.assertIn(">下载<", html)
         self.assertIn(">设置<", html)
-        self.assertIn("download_root/漫画名/001话/001.jpg", html)
+        self.assertIn("/downloads/漫画名/001话/001.jpg", html)
         self.assertIn("下载选中章节 - 规划中", html)
+        self.assertIn("panelscout download plan SOURCE_COMIC_ID", html)
+        self.assertIn("--output-root /downloads", html)
         self.assertIn("disabled", html)
         self.assertIn("本地库暂未保存漫画。", html)
         self.assertNotIn("Download selected chapters - planned", html)
@@ -1004,7 +1006,12 @@ class CliTests(unittest.TestCase):
         self.assertIn("https://manhua.zaimanhua.com/view/15599/1001.html", html)
         self.assertIn(">备注<", html)
         self.assertIn("read after UI pass", html)
-        self.assertIn("download_root/伪恋同盟/第001话 背叛之后/001.jpg", html)
+        self.assertIn("/downloads/伪恋同盟/第001话 背叛之后/001.jpg", html)
+        self.assertIn(
+            "panelscout download run 15599 --chapter &#x27;第001话 背叛之后&#x27; "
+            "--output-root /downloads",
+            html,
+        )
         self.assertNotIn("海贼同人短篇合集", html)
 
     def test_ui_build_blank_output_fails_cleanly(self):
@@ -1051,6 +1058,37 @@ class CliTests(unittest.TestCase):
         self.assertIn("Images discovered: 4", stdout)
         self.assertIn("No files were downloaded or written.", stdout)
         self.assertIn("001. download: 伪恋同盟/第001话 背叛之后/001.jpg", stdout)
+
+    def test_download_plan_uses_default_download_root_when_omitted(self):
+        chapter_fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(
+            encoding="utf-8"
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            _write_test_config(config_path, root, database_path)
+            _seed_download_chapter(database_path)
+
+            code, stdout, stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "download",
+                    "plan",
+                    "15599",
+                    "--chapter",
+                    "第001话 背叛之后",
+                    "--permission-note",
+                    "用户确认该公开章节可用于个人本地归档。",
+                ],
+                download_fetcher_factory=FakeDownloadFetcherFactory(chapter_fixture),
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("Download root: /downloads", stdout)
+        self.assertIn("Chapter directory: /downloads/伪恋同盟/第001话 背叛之后", stdout)
 
     def test_download_run_saves_explicit_chapter_images(self):
         chapter_fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(

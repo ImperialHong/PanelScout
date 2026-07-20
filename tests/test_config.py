@@ -13,6 +13,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.source, "zaimanhua")
         self.assertEqual(config.database_path.name, "panelscout.sqlite3")
         self.assertEqual(config.session_dir.name, "sessions")
+        self.assertEqual(config.download_root, Path("/downloads"))
         self.assertGreaterEqual(config.request_delay_seconds, 1)
         self.assertEqual(config.max_concurrency_per_domain, 1)
 
@@ -38,8 +39,28 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.data_dir, data_dir)
         self.assertEqual(config.database_path, data_dir / "panelscout.sqlite3")
         self.assertEqual(config.session_dir, data_dir / "sessions")
+        self.assertEqual(config.download_root, Path("/downloads"))
         self.assertEqual(config.request_delay_seconds, 1.5)
         self.assertEqual(config.max_concurrency_per_domain, 2)
+
+    def test_load_config_accepts_custom_download_root(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_path = root / "config.toml"
+            download_root = root / "downloads"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'download_root = "{download_root}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            config = load_config(config_path)
+
+        self.assertEqual(config.download_root, download_root)
 
     def test_rejects_non_metadata_only_config(self):
         with self.assertRaisesRegex(ConfigError, "metadata_only"):

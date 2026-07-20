@@ -38,6 +38,11 @@ class LocalUiShellTests(unittest.TestCase):
         self.assertIn("disabled", html)
         self.assertIn("下载控件规划中/已禁用", html)
         self.assertIn("未启用下载引擎", html)
+        self.assertIn("规划命令", html)
+        self.assertIn("下载命令", html)
+        self.assertIn("panelscout download plan 15599", html)
+        self.assertIn("panelscout download run 15599", html)
+        self.assertIn("--output-root /downloads", html)
         self.assertNotIn("Download selected chapters - planned", html)
         self.assertNotIn("Retry failed - planned", html)
         self.assertNotIn("planned/disabled", html)
@@ -128,7 +133,12 @@ class LocalUiShellTests(unittest.TestCase):
         self.assertIn(">备注<", html)
         self.assertIn(">priority<", html)
         self.assertIn("zaimanhua：每 120 分钟", html)
-        self.assertIn("download_root/伪恋同盟/第001话 背叛之后/001.jpg", html)
+        self.assertIn("/downloads/伪恋同盟/第001话 背叛之后/001.jpg", html)
+        self.assertIn(
+            "panelscout download plan 15599 --chapter &#x27;第001话 背叛之后&#x27; "
+            "--output-root /downloads",
+            html,
+        )
         self.assertNotIn("海贼同人短篇合集", html)
 
     def test_build_local_ui_state_missing_database_uses_empty_state_without_creating_dirs(self):

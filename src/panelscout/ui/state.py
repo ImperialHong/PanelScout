@@ -60,6 +60,7 @@ class UiHistoryRow:
 @dataclass(frozen=True, kw_only=True)
 class LocalUiState:
     database_path: str
+    download_root: str
     source: str
     data_status: str
     comics: tuple[UiComic, ...] = ()
@@ -81,6 +82,7 @@ def build_local_ui_state(config: PanelScoutConfig) -> LocalUiState:
         if not expanded_path.exists():
             return LocalUiState(
                 database_path=database_display,
+                download_root=str(config.download_root),
                 source=config.source,
                 data_status="配置的数据库尚不存在。",
             )
@@ -108,6 +110,7 @@ def build_local_ui_state(config: PanelScoutConfig) -> LocalUiState:
     except sqlite3.Error as error:
         return LocalUiState(
             database_path=database_display,
+            download_root=str(config.download_root),
             source=config.source,
             data_status=f"无法读取配置的数据库：{error}",
         )
@@ -128,6 +131,7 @@ def build_local_ui_state(config: PanelScoutConfig) -> LocalUiState:
 
     return LocalUiState(
         database_path=database_display,
+        download_root=str(config.download_root),
         source=config.source,
         data_status=status,
         comics=comics,
@@ -172,6 +176,7 @@ def sample_local_ui_state() -> LocalUiState:
     )
     return LocalUiState(
         database_path="~/.local/share/panelscout/panelscout.sqlite3",
+        download_root="/downloads",
         source="zaimanhua",
         data_status="静态示例预览；未读取配置数据库。",
         comics=(first, second),

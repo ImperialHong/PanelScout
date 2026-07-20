@@ -10,6 +10,7 @@ from typing import Any
 
 APP_NAME = "panelscout"
 DEFAULT_USER_AGENT = "PanelScout/0.1 (metadata-only; local use)"
+DEFAULT_DOWNLOAD_ROOT = Path("/downloads")
 SUPPORTED_SOURCES = ("zaimanhua",)
 
 
@@ -25,6 +26,7 @@ class PanelScoutConfig:
     database_path: Path
     cache_dir: Path
     session_dir: Path
+    download_root: Path
     user_agent: str = DEFAULT_USER_AGENT
     request_delay_seconds: float = 2.0
     max_concurrency_per_domain: int = 1
@@ -64,6 +66,7 @@ def default_config() -> PanelScoutConfig:
         database_path=data_dir / "panelscout.sqlite3",
         cache_dir=cache_home / APP_NAME,
         session_dir=data_dir / "sessions",
+        download_root=DEFAULT_DOWNLOAD_ROOT,
     )
 
 
@@ -98,7 +101,13 @@ def build_config(raw_config: dict[str, Any]) -> PanelScoutConfig:
             config_values["session_dir"] = data_dir / "sessions"
 
     for key, value in overrides.items():
-        if key in {"data_dir", "database_path", "cache_dir", "session_dir"}:
+        if key in {
+            "data_dir",
+            "database_path",
+            "cache_dir",
+            "session_dir",
+            "download_root",
+        }:
             config_values[key] = _coerce_path(value)
         else:
             config_values[key] = value

@@ -654,3 +654,40 @@ Validation summary:
 - `git diff --check` passed.
 - Boundary scan found only expected negative/fixture references for session paths, authorization wording, and no-login/no-bypass comments; no executable login/auth/session/cookie/browser/background queue behavior was added.
 - No login/auth/session/cookie workflow, browser automation, paid/VIP bypass, referer spoofing, source restriction bypass, or background queue was introduced.
+
+### Unit 23: UI Download Command Bridge and `/downloads` Default
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/config.py`
+- `src/panelscout/cli.py`
+- `src/panelscout/ui/state.py`
+- `src/panelscout/ui/shell.py`
+- `src/panelscout/downloader/workflow.py`
+- `tests/test_config.py`
+- `tests/test_ui.py`
+- `tests/test_cli.py`
+- `tests/test_download_workflow.py`
+
+Validation summary:
+
+- `PanelScoutConfig.download_root` now defaults to `/downloads`.
+- Config supports `[paths] download_root = "/custom/path"` overrides.
+- `panelscout download plan/run` can omit `--output-root` and will use the configured `download_root`.
+- The Chinese static UI renders `/downloads` in the settings field, folder preview, and copyable `panelscout download plan/run` command previews for the selected local chapter.
+- The static UI still does not execute downloads, start a server, run browser automation, create sessions/cookies, or start background queues.
+- Download workflow now fails cleanly when the target chapter directory cannot be created.
+- `/downloads` smoke test was attempted with fixture HTML and fake image bytes. On this macOS host, `/downloads` does not exist and root is read-only, so the smoke test returned `saved=0 skipped=0 failed=4` without a Python traceback.
+- Control smoke test to `/private/tmp/panelscout-downloads` saved 4 fixture image files as `001.jpg`, `002.png`, `003.png`, and `004.webp`, confirming the save path works when the target root is writable.
+- Focused config/UI/CLI/download workflow tests passed with 46 tests.
+- Full `unittest discover` passed with 97 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Boundary scan found only expected author-field matches, fixture/config `session_dir` references, and negative no-login/no-bypass/no-background wording.
+- No login/auth/session/cookie workflow, browser automation, paid/VIP bypass, referer spoofing, source restriction bypass, or background queue was introduced.

@@ -263,8 +263,7 @@ def _add_download_common_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--output-root",
-        required=True,
-        help="Download root directory.",
+        help="Download root directory. Defaults to the configured download_root.",
     )
     parser.add_argument(
         "--permission-note",
@@ -731,8 +730,9 @@ def _handle_ui_build(args: argparse.Namespace, config) -> int:
 
 
 def _handle_download_help(args: argparse.Namespace, config) -> int:
-    print("panelscout download plan SOURCE_COMIC_ID --chapter REF --output-root PATH --permission-note NOTE")
-    print("panelscout download run SOURCE_COMIC_ID --chapter REF --output-root PATH --permission-note NOTE")
+    print("panelscout download plan SOURCE_COMIC_ID --chapter REF [--output-root PATH] --permission-note NOTE")
+    print("panelscout download run SOURCE_COMIC_ID --chapter REF [--output-root PATH] --permission-note NOTE")
+    print("If --output-root is omitted, the configured download_root is used.")
     print("Downloads are explicit and local-only; no login, bypass, or background queue is started.")
     return 0
 
@@ -745,11 +745,12 @@ def _handle_download_plan(args: argparse.Namespace, config) -> int:
 
     factory = getattr(args, "download_fetcher_factory", None) or _create_download_fetcher
     try:
+        download_root = _download_root_from_args(args, config)
         result = plan_public_chapter_download(
             comic=comic,
             chapter=chapter,
             chapter_fetcher=factory(config),
-            download_root=args.output_root,
+            download_root=download_root,
             permission_note=args.permission_note,
         )
     except (RobotsLoadError, RobotsDisallowedError, FetchError, ValueError) as error:
@@ -769,12 +770,13 @@ def _handle_download_run(args: argparse.Namespace, config) -> int:
     download_factory = getattr(args, "download_fetcher_factory", None) or _create_download_fetcher
     image_factory = getattr(args, "image_fetcher_factory", None) or _create_image_fetcher
     try:
+        download_root = _download_root_from_args(args, config)
         result = save_public_chapter_download(
             comic=comic,
             chapter=chapter,
             chapter_fetcher=download_factory(config),
             image_fetcher=image_factory(config),
-            download_root=args.output_root,
+            download_root=download_root,
             permission_note=args.permission_note,
         )
     except (RobotsLoadError, RobotsDisallowedError, FetchError, ValueError) as error:
@@ -824,6 +826,15 @@ def _load_download_selection(args: argparse.Namespace, config):
             print(f"panelscout: local chapter not found: {chapter_reference}", file=sys.stderr)
             return None
         return source, comic, chapter
+
+
+def _download_root_from_args(args: argparse.Namespace, config):
+    raw_value = getattr(args, "output_root", None)
+    if raw_value is None:
+        return config.download_root
+    if not str(raw_value).strip():
+        raise ValueError("download output root cannot be blank")
+    return raw_value
 
 
 def _select_chapter(chapters, reference: str):

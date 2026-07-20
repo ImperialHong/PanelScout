@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from html import escape
 from pathlib import Path
+from shlex import quote
 
 from panelscout.ui.state import LocalUiState, UiComic, sample_local_ui_state
 
@@ -26,7 +27,9 @@ NAV_ANCHORS = {
     "设置": "settings",
 }
 
-DOWNLOAD_LAYOUT_PREVIEW = "download_root/漫画名/001话/001.jpg"
+DEFAULT_DOWNLOAD_ROOT = "/downloads"
+DOWNLOAD_LAYOUT_PREVIEW = f"{DEFAULT_DOWNLOAD_ROOT}/漫画名/001话/001.jpg"
+DOWNLOAD_PERMISSION_NOTE = "用户确认该公开章节可用于个人本地归档。"
 
 
 def build_local_ui_shell(state: LocalUiState | None = None) -> str:
@@ -237,6 +240,16 @@ def build_local_ui_shell(state: LocalUiState | None = None) -> str:
       border: 1px solid var(--line);
       border-radius: 6px;
       background: #f9fafb;
+    }}
+    .command-list {{
+      display: grid;
+      gap: 6px;
+      margin-top: 8px;
+    }}
+    .command-list label {{
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
     }}
     .settings-grid {{
       display: grid;
@@ -462,6 +475,7 @@ def _render_downloads(state: LocalUiState, *, use_fallback_preview: bool) -> str
     else:
         chapter_controls = '            <p class="empty">暂无可选本地章节。</p>'
     preview = DOWNLOAD_LAYOUT_PREVIEW if use_fallback_preview else _download_preview(state)
+    plan_command, run_command = _download_commands(state)
     return f"""        <div class="card" id="downloads">
           <h2>下载</h2>
           <div class="queue-tabs" aria-label="下载队列标签">
@@ -476,6 +490,13 @@ def _render_downloads(state: LocalUiState, *, use_fallback_preview: bool) -> str
           <p class="muted">队列状态：仅作规划展示；当前单元未启用下载引擎。</p>
           <h3>目录预览</h3>
           <code>{_e(preview)}</code>
+          <h3>命令预览</h3>
+          <div class="command-list">
+            <label>规划命令</label>
+            <code>{_e(plan_command)}</code>
+            <label>下载命令</label>
+            <code>{_e(run_command)}</code>
+          </div>
         </div>"""
 
 
@@ -486,7 +507,7 @@ def _render_settings(state: LocalUiState) -> str:
           <label for="database-path">数据库路径</label>
           <input id="database-path" value="{_e(state.database_path)}">
           <label for="download-root">下载根目录</label>
-          <input id="download-root" value="~/PanelScout 下载">
+          <input id="download-root" value="{_e(state.download_root)}">
           <label for="concurrency">下载并发数</label>
           <input id="concurrency" value="1" disabled>
           <label for="rate-limit">限速</label>
@@ -514,13 +535,44 @@ def _render_comic_meta(comic: UiComic, *, include_source_id: bool) -> str:
 def _download_preview(state: LocalUiState) -> str:
     if state.selected_comic is None:
         return DOWNLOAD_LAYOUT_PREVIEW
+    root = _download_root(state)
     comic_name = _path_segment(state.selected_comic.title, fallback="漫画名")
     chapter_name = (
         _path_segment(state.chapters[0].title, fallback="001话")
         if state.chapters
         else "001话"
     )
-    return f"download_root/{comic_name}/{chapter_name}/001.jpg"
+    return f"{root}/{comic_name}/{chapter_name}/001.jpg"
+
+
+def _download_commands(state: LocalUiState) -> tuple[str, str]:
+    source_comic_id = (
+        state.selected_comic.source_comic_id
+        if state.selected_comic is not None
+        else "SOURCE_COMIC_ID"
+    )
+    chapter_reference = state.chapters[0].title if state.chapters else "CHAPTER"
+    root = _download_root(state)
+    common_args = [
+        source_comic_id,
+        "--chapter",
+        chapter_reference,
+        "--output-root",
+        root,
+        "--permission-note",
+        DOWNLOAD_PERMISSION_NOTE,
+    ]
+    plan = ["panelscout", "download", "plan", *common_args]
+    run = ["panelscout", "download", "run", *common_args]
+    return _shell_command(plan), _shell_command(run)
+
+
+def _download_root(state: LocalUiState) -> str:
+    return (state.download_root or DEFAULT_DOWNLOAD_ROOT).rstrip("/") or "/"
+
+
+def _shell_command(parts: list[str]) -> str:
+    return " ".join(quote(part) for part in parts)
 
 
 def _path_segment(value: str, *, fallback: str) -> str:
