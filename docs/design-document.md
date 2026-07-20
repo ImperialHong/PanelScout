@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.9
+Version: 0.10
 
 Date: 2026-07-20
 
@@ -259,7 +259,7 @@ User query
     |
 Validate source policy and robots rules
     |
-Load optional authenticated session
+Load optional authenticated session (MVP 5 only; skipped in MVP 2)
     |
 Build crawl job
     |
@@ -279,6 +279,8 @@ Generate update report
 ```
 
 ## 9. Authenticated Crawl Flow
+
+This flow belongs to MVP 5. MVP 2 detail sync must remain anonymous/public-only.
 
 ```text
 User runs auth login
@@ -318,10 +320,12 @@ Unit 1 accepted scope:
 
 ### MVP 2: Detail Sync
 
+- Public/anonymous detail sync only.
 - Detail page parsing.
 - Chapter metadata parsing.
 - Comic and chapter upsert logic.
 - Update detection.
+- Authenticated Session Mode is explicitly out of MVP 2 and remains MVP 5.
 
 ### MVP 3: Watchlist
 
