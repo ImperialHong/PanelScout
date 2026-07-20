@@ -200,16 +200,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watch_parser.set_defaults(handler=_handle_watch_list, watch_command="list", limit=100)
 
-    ui_parser = subparsers.add_parser("ui", help="Build local UI artifacts.")
+    ui_parser = subparsers.add_parser("ui", help="生成本地 UI 文件。")
     ui_subparsers = ui_parser.add_subparsers(dest="ui_command")
     ui_build = ui_subparsers.add_parser(
         "build",
-        help="Build the static MVP4 local UI shell.",
+        help="生成 MVP4 本地静态 UI。",
     )
     ui_build.add_argument(
         "--output",
         required=True,
-        help="Output HTML file path.",
+        help="输出 HTML 文件路径。",
     )
     ui_build.set_defaults(handler=_handle_ui_build)
     ui_parser.set_defaults(handler=_handle_ui_help)
@@ -649,21 +649,21 @@ def _handle_watch_schedule_due(args: argparse.Namespace, config) -> int:
 
 def _handle_ui_help(args: argparse.Namespace, config) -> int:
     print("panelscout ui build --output PATH")
-    print("Builds a static local UI shell; no server or network request is made.")
+    print("生成本地静态 UI；不会启动服务，也不会发起网络请求。")
     return 0
 
 
 def _handle_ui_build(args: argparse.Namespace, config) -> int:
     output = (args.output or "").strip()
     if not output:
-        print("panelscout: ui build output path cannot be blank", file=sys.stderr)
+        print("panelscout：ui build 输出路径不能为空", file=sys.stderr)
         return 1
 
     state = build_local_ui_state(config)
     output_path = write_local_ui_shell(output, state=state)
-    print(f"UI shell written: {output_path}")
-    print(f"UI data: {state.data_status}")
-    print("Open the HTML file locally. No server, network, auth, or download task was started.")
+    print(f"UI 文件已写入：{output_path}")
+    print(f"UI 数据：{state.data_status}")
+    print("请在本地打开 HTML 文件。未启动服务、网络、登录或下载任务。")
     return 0
 
 

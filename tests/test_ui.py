@@ -14,21 +14,33 @@ class LocalUiShellTests(unittest.TestCase):
 
         for item in NAV_ITEMS:
             self.assertIn(f">{item}<", html)
+        for item in ("搜索", "本地库", "追更", "更新历史", "下载", "设置"):
+            self.assertIn(f">{item}<", html)
         self.assertIn('id="search"', html)
         self.assertIn('id="local-library"', html)
         self.assertIn('id="watchlist"', html)
         self.assertIn('id="update-history"', html)
         self.assertIn('id="downloads"', html)
         self.assertIn('id="settings"', html)
+        self.assertNotIn(">Search<", html)
+        self.assertNotIn(">Local Library<", html)
+        self.assertNotIn(">Watchlist<", html)
+        self.assertNotIn(">Update History<", html)
+        self.assertNotIn(">Downloads<", html)
+        self.assertNotIn(">Settings<", html)
 
     def test_download_area_is_planned_and_uses_expected_folder_preview(self):
         html = build_local_ui_shell()
 
         self.assertIn(DOWNLOAD_LAYOUT_PREVIEW, html)
-        self.assertIn("Download selected chapters - planned", html)
-        self.assertIn("Retry failed - planned", html)
+        self.assertIn("下载选中章节 - 规划中", html)
+        self.assertIn("重试失败任务 - 规划中", html)
         self.assertIn("disabled", html)
-        self.assertIn("no downloader engine is active", html)
+        self.assertIn("下载控件规划中/已禁用", html)
+        self.assertIn("未启用下载引擎", html)
+        self.assertNotIn("Download selected chapters - planned", html)
+        self.assertNotIn("Retry failed - planned", html)
+        self.assertNotIn("planned/disabled", html)
 
     def test_write_local_ui_shell_creates_parent_directories(self):
         with TemporaryDirectory() as directory:
@@ -38,7 +50,7 @@ class LocalUiShellTests(unittest.TestCase):
             html = output_path.read_text(encoding="utf-8")
 
         self.assertEqual(written, output_path)
-        self.assertIn("<title>PanelScout Local UI</title>", html)
+        self.assertIn("<title>PanelScout 本地界面</title>", html)
         self.assertIn(DOWNLOAD_LAYOUT_PREVIEW, html)
 
     def test_build_local_ui_state_reads_configured_database(self):
@@ -104,18 +116,18 @@ class LocalUiShellTests(unittest.TestCase):
             state = build_local_ui_state(config)
             html = build_local_ui_shell(state)
 
-        self.assertIn("Loaded local database: 2 comics, 1 watched, 2 chapters", state.data_status)
+        self.assertIn("已读取本地数据库：2 部漫画，1 个追更，当前漫画 2 个章节", state.data_status)
         self.assertIn("伪恋同盟", html)
         self.assertIn("榊葵/绫乃", html)
         self.assertIn("第003话 重新开始", html)
         self.assertIn("第001话 背叛之后", html)
-        self.assertIn("Local Chapters", html)
-        self.assertIn("Chapter URL", html)
+        self.assertIn("本地章节", html)
+        self.assertIn("章节地址", html)
         self.assertIn("https://manhua.zaimanhua.com/view/15599/1001.html", html)
         self.assertIn("本地保存的简介", html)
-        self.assertIn(">Notes<", html)
+        self.assertIn(">备注<", html)
         self.assertIn(">priority<", html)
-        self.assertIn("zaimanhua: every 120 minutes", html)
+        self.assertIn("zaimanhua：每 120 分钟", html)
         self.assertIn("download_root/伪恋同盟/第001话 背叛之后/001.jpg", html)
         self.assertNotIn("海贼同人短篇合集", html)
 
@@ -131,11 +143,11 @@ class LocalUiShellTests(unittest.TestCase):
 
             self.assertFalse(missing_parent.exists())
 
-        self.assertEqual(state.data_status, "Configured database does not exist yet.")
-        self.assertIn("No local catalog data yet", html)
-        self.assertIn("No comics in local library yet.", html)
-        self.assertIn("No chapters for the selected comic yet.", html)
-        self.assertIn(">Notes<", html)
+        self.assertEqual(state.data_status, "配置的数据库尚不存在。")
+        self.assertIn("暂无本地漫画数据", html)
+        self.assertIn("本地库暂未保存漫画。", html)
+        self.assertIn("当前漫画暂无本地章节。", html)
+        self.assertIn(">备注<", html)
         self.assertIn(DOWNLOAD_LAYOUT_PREVIEW, html)
 
     def test_build_local_ui_state_initialized_empty_database_renders_empty_states(self):
@@ -149,18 +161,18 @@ class LocalUiShellTests(unittest.TestCase):
             state = build_local_ui_state(config)
             html = build_local_ui_shell(state)
 
-        self.assertEqual(state.data_status, "Configured database is available but empty.")
-        self.assertIn("Configured database is available but empty.", html)
-        self.assertIn("No local catalog data yet", html)
-        self.assertIn("No comics in local library yet.", html)
-        self.assertIn("No comic selected", html)
-        self.assertIn("No chapters for the selected comic yet.", html)
-        self.assertIn("No watched comics yet.", html)
-        self.assertIn("No local update history yet.", html)
-        self.assertIn("No local chapters available yet.", html)
+        self.assertEqual(state.data_status, "配置的数据库可用，但暂无数据。")
+        self.assertIn("配置的数据库可用，但暂无数据。", html)
+        self.assertIn("暂无本地漫画数据", html)
+        self.assertIn("本地库暂未保存漫画。", html)
+        self.assertIn("尚未选择漫画", html)
+        self.assertIn("当前漫画暂无本地章节。", html)
+        self.assertIn("暂无追更漫画。", html)
+        self.assertIn("暂无本地更新历史。", html)
+        self.assertIn("暂无可选本地章节。", html)
         self.assertNotIn("伪恋同盟", html)
         self.assertNotIn("海贼同人短篇合集", html)
-        self.assertNotIn("Static sample preview", html)
+        self.assertNotIn("静态示例预览", html)
 
 
 def _test_config(root: Path, database_path: Path):

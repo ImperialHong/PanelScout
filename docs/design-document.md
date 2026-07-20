@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.19
+Version: 0.20
 
 Date: 2026-07-20
 
@@ -365,29 +365,30 @@ Unit 1 accepted scope:
 
 ### MVP 4: Local UI
 
-- Search screen. Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16.
-- Local library screen. Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16.
-- Comic detail screen. Status: static shell baseline completed in Unit 15; selected comic metadata and local chapter list binding completed in Unit 16.
-- Watchlist screen. Status: static shell baseline completed in Unit 15; local watchlist entries, notes, and checked-status binding completed in Unit 16.
-- Update history screen. Status: static shell baseline completed in Unit 15; local summary binding completed in Unit 16; persisted history stream pending.
-- Chapter selection and local download screen. Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; download execution pending.
-- Download queue/status screen. Status: static shell baseline completed in Unit 15; queue engine pending.
-- Download settings screen. Status: static shell baseline completed in Unit 15; database path binding completed in Unit 16; settings persistence pending.
+- 搜索页。Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
+- 本地库页。Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
+- 漫画详情页。Status: static shell baseline completed in Unit 15; selected comic metadata and local chapter list binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
+- 追更页。Status: static shell baseline completed in Unit 15; local watchlist entries, notes, and checked-status binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
+- 更新历史页。Status: static shell baseline completed in Unit 15; local summary binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; persisted history stream pending.
+- 章节选择与本地下载页。Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; download execution pending.
+- 下载队列/状态页。Status: static shell baseline completed in Unit 15; Chinese UI copy baseline completed in Unit 17; queue engine pending.
+- 下载设置页。Status: static shell baseline completed in Unit 15; database path binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; settings persistence pending.
 
 MVP 4 required UI elements:
 
-- Top navigation tabs: Search, Local Library, Watchlist, Update History, Downloads, Settings.
-- Search toolbar: keyword input, source selector, search button, save result action.
-- Left result/library pane: compact comic cards with title, author, status, latest chapter, source comic id, and quick actions.
-- Right detail pane: metadata summary, detail URL, visible chapter list, sync action, watch/unwatch action, and export/report actions.
-- Chapter selector: checkbox grid/list, refresh chapters action, select all, clear selection, and selected count.
-- Download controls: download selected chapters, pause/resume queue, retry failed items, open download folder.
-- Download queue tabs: pending, running, completed, failed.
-- Download item fields: comic title, chapter title, page count, saved count, current image, status, speed, error message.
-- Download directory controls: root directory input, open folder button, naming preview using `comic_title/chapter_title/001.ext`.
-- Watchlist panel: checked count, new chapters, metadata changes, failures, last checked time, schedule status.
-- Update history panel: latest watch check summary, Markdown report export, failed item detail.
-- Settings panel: database path, download root path, source, user agent, request delay, concurrency, report output path, and logs.
+- 默认 UI 语言：本地界面的用户可见文案使用简体中文。
+- 顶部导航：搜索、本地库、追更、更新历史、下载、设置。
+- 搜索工具栏：关键词输入、来源选择、搜索按钮、保存结果操作。
+- 左侧结果/本地库区域：紧凑漫画卡片，包含标题、作者、状态、最新章节、来源漫画 ID 和快捷操作。
+- 右侧详情区域：元数据摘要、详情地址、可见章节列表、同步操作、追更/取消追更操作、导出/报告操作。
+- 章节选择器：复选框网格/列表、刷新章节操作、全选、清空选择和已选数量。
+- 下载控制：下载选中章节、暂停/继续队列、重试失败项、打开下载目录。
+- 下载队列标签：待处理、运行中、已完成、失败。
+- 下载条目字段：漫画标题、章节标题、页数、已保存数量、当前图片、状态、速度、错误信息。
+- 下载目录控制：根目录输入、打开目录按钮、命名预览 `comic_title/chapter_title/001.ext`。
+- 追更面板：检查数量、新章节、元数据变化、失败项、最后检查时间、计划状态。
+- 更新历史面板：最近追更检查摘要、Markdown 报告导出、失败项详情。
+- 设置面板：数据库路径、下载根目录、来源、User-Agent、请求延迟、并发数、报告输出路径和日志。
 
 MVP 4 UI boundaries:
 
@@ -399,6 +400,7 @@ MVP 4 current implementation note:
 
 - Unit 15 ships a static local HTML shell via `panelscout ui build --output PATH`.
 - Unit 16 reads the configured local SQLite database when it exists and renders saved catalog, chapter, watchlist, watch schedule, and local summary data into that static shell.
+- Unit 17 makes the static local UI's user-visible copy Chinese by default, including navigation, headings, tables, buttons, empty states, disabled download text, core accessibility labels, and UI build output.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The current UI shell is a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
 - Download action buttons are visible for planning but disabled, and the folder preview follows `download_root/漫画名/章节名/001.jpg`.
@@ -1006,6 +1008,38 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
 - Agent2 validation passed after the initialized-empty database test coverage was added.
+
+### Unit 17: Chinese Local UI Copy Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/ui/shell.py`
+- `src/panelscout/ui/state.py`
+- `tests/test_cli.py`
+- `tests/test_ui.py`
+
+Validation summary:
+
+- The static local UI now uses Simplified Chinese for user-visible navigation, headings, table headers, buttons, statuses, empty states, download copy, settings copy, update-history copy, and watchlist copy.
+- The HTML document language is `zh-CN`, and core accessibility labels are Chinese.
+- Stable section anchors remain `search`, `local-library`, `watchlist`, `update-history`, `downloads`, and `settings`.
+- `panelscout ui build --output PATH` keeps the same command shape, but UI-related output is Chinese and still states that no service, network, login, or download task was started.
+- Data-backed rendering for comics, authors, latest chapters, detail URLs, chapters, watchlist notes, and download folder previews still works.
+- Missing and initialized-empty database states render Chinese empty-state copy and do not create default user-home database directories.
+- Download controls remain disabled and planning-only; no downloader engine, image fetching, retry execution, or queue runtime was introduced.
+- Focused `tests.test_ui` and `tests.test_cli` checks passed with 32 tests.
+- Full `unittest discover` passed with 80 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Generated HTML scan found no old English UI copy such as `Search`, `Local Library`, `Watchlist`, `Download selected chapters - planned`, or `Retry failed - planned`.
+- Agent2 validation passed.
 
 ## 16. Open Questions
 

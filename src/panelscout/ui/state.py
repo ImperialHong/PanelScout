@@ -82,7 +82,7 @@ def build_local_ui_state(config: PanelScoutConfig) -> LocalUiState:
             return LocalUiState(
                 database_path=database_display,
                 source=config.source,
-                data_status="Configured database does not exist yet.",
+                data_status="配置的数据库尚不存在。",
             )
 
     try:
@@ -109,7 +109,7 @@ def build_local_ui_state(config: PanelScoutConfig) -> LocalUiState:
         return LocalUiState(
             database_path=database_display,
             source=config.source,
-            data_status=f"Configured database could not be read: {error}",
+            data_status=f"无法读取配置的数据库：{error}",
         )
 
     history_rows = _history_rows(
@@ -120,11 +120,11 @@ def build_local_ui_state(config: PanelScoutConfig) -> LocalUiState:
     )
     if comics or watchlist_entries or chapters or schedule:
         status = (
-            f"Loaded local database: {len(comics)} comics, "
-            f"{len(watchlist_entries)} watched, {len(chapters)} chapters for the selected comic."
+            f"已读取本地数据库：{len(comics)} 部漫画，"
+            f"{len(watchlist_entries)} 个追更，当前漫画 {len(chapters)} 个章节。"
         )
     else:
-        status = "Configured database is available but empty."
+        status = "配置的数据库可用，但暂无数据。"
 
     return LocalUiState(
         database_path=database_display,
@@ -159,7 +159,7 @@ def sample_local_ui_state() -> LocalUiState:
         source="zaimanhua",
         source_comic_id="251780",
         title="海贼同人短篇合集",
-        author="sample",
+        author="示例作者",
         latest_chapter_title="第018话",
     )
     chapters = tuple(
@@ -173,7 +173,7 @@ def sample_local_ui_state() -> LocalUiState:
     return LocalUiState(
         database_path="~/.local/share/panelscout/panelscout.sqlite3",
         source="zaimanhua",
-        data_status="Static sample preview; no configured database was loaded.",
+        data_status="静态示例预览；未读取配置数据库。",
         comics=(first, second),
         selected_comic=first,
         chapters=chapters,
@@ -182,9 +182,9 @@ def sample_local_ui_state() -> LocalUiState:
             UiWatchlistEntry(comic=second),
         ),
         history_rows=(
-            UiHistoryRow(kind="New chapter", comic_title=first.title, detail="第003话 重新开始"),
-            UiHistoryRow(kind="Metadata", comic_title=first.title, detail="Latest chapter changed"),
-            UiHistoryRow(kind="Report", comic_title="watch-check.md", detail="ready for export"),
+            UiHistoryRow(kind="新章节", comic_title=first.title, detail="第003话 重新开始"),
+            UiHistoryRow(kind="元数据", comic_title=first.title, detail="最新章节已变化"),
+            UiHistoryRow(kind="报告", comic_title="watch-check.md", detail="可导出"),
         ),
     )
 
@@ -245,20 +245,20 @@ def _history_rows(
     if watch_schedule is not None:
         rows.append(
             UiHistoryRow(
-                kind="Schedule",
+                kind="计划",
                 comic_title=watch_schedule.source,
-                detail=f"next run {watch_schedule.next_run_at}",
+                detail=f"下次检查 {watch_schedule.next_run_at}",
             )
         )
     for entry in watchlist_entries[:4]:
-        checked = entry.last_checked_at or "never checked"
+        checked = entry.last_checked_at or "从未检查"
         rows.append(
-            UiHistoryRow(kind="Watch", comic_title=entry.comic.title, detail=checked)
+            UiHistoryRow(kind="追更", comic_title=entry.comic.title, detail=checked)
         )
     for comic in comics[:4]:
-        detail = comic.latest_chapter_title or comic.updated_at or "metadata saved"
-        rows.append(UiHistoryRow(kind="Catalog", comic_title=comic.title, detail=detail))
+        detail = comic.latest_chapter_title or comic.updated_at or "元数据已保存"
+        rows.append(UiHistoryRow(kind="目录", comic_title=comic.title, detail=detail))
     for chapter in chapters[:4]:
-        selected_title = comics[0].title if comics else "Selected comic"
-        rows.append(UiHistoryRow(kind="Chapter", comic_title=selected_title, detail=chapter.title))
+        selected_title = comics[0].title if comics else "选中漫画"
+        rows.append(UiHistoryRow(kind="章节", comic_title=selected_title, detail=chapter.title))
     return tuple(rows[:10])

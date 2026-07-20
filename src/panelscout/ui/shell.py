@@ -9,13 +9,22 @@ from panelscout.ui.state import LocalUiState, UiComic, sample_local_ui_state
 
 
 NAV_ITEMS = (
-    "Search",
-    "Local Library",
-    "Watchlist",
-    "Update History",
-    "Downloads",
-    "Settings",
+    "搜索",
+    "本地库",
+    "追更",
+    "更新历史",
+    "下载",
+    "设置",
 )
+
+NAV_ANCHORS = {
+    "搜索": "search",
+    "本地库": "local-library",
+    "追更": "watchlist",
+    "更新历史": "update-history",
+    "下载": "downloads",
+    "设置": "settings",
+}
 
 DOWNLOAD_LAYOUT_PREVIEW = "download_root/漫画名/001话/001.jpg"
 
@@ -35,11 +44,11 @@ def build_local_ui_shell(state: LocalUiState | None = None) -> str:
     )
     search_value = ui_state.selected_comic.title if ui_state.selected_comic else ""
     return f"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PanelScout Local UI</title>
+  <title>PanelScout 本地界面</title>
   <style>
     :root {{
       color-scheme: light;
@@ -252,24 +261,24 @@ def build_local_ui_shell(state: LocalUiState | None = None) -> str:
 <body>
   <header>
     <div class="brand">PanelScout 格探</div>
-    <nav aria-label="Primary">
+    <nav aria-label="主导航">
 {nav}
     </nav>
   </header>
   <main>
     <aside id="search">
-      <form class="toolbar" aria-label="Search toolbar">
-        <input type="search" value="{_e(search_value)}" aria-label="Search keyword">
-        <select aria-label="Source">
+      <form class="toolbar" aria-label="搜索工具栏">
+        <input type="search" value="{_e(search_value)}" aria-label="搜索关键词">
+        <select aria-label="来源">
           <option>{_e(ui_state.source)}</option>
         </select>
-        <button class="primary" type="button">Search</button>
+        <button class="primary" type="button">搜索</button>
       </form>
 {_render_search_cards(ui_state)}
       <div class="card" id="local-library">
-        <h2>Local Library</h2>
+        <h2>本地库</h2>
         <table class="table">
-          <thead><tr><th>Title</th><th>Latest</th><th>Checked</th></tr></thead>
+          <thead><tr><th>标题</th><th>最新章节</th><th>检查时间</th></tr></thead>
           <tbody>
 {_render_library_rows(ui_state)}
           </tbody>
@@ -303,7 +312,7 @@ def write_local_ui_shell(output_path: str | Path, state: LocalUiState | None = N
 def _render_search_cards(state: LocalUiState) -> str:
     if not state.comics:
         return f"""      <div class="card">
-        <div class="comic-title">No local catalog data yet</div>
+        <div class="comic-title">暂无本地漫画数据</div>
         <p class="empty">{_e(state.data_status)}</p>
       </div>"""
     return "\n".join(_render_comic_card(comic) for comic in state.comics[:6])
@@ -320,11 +329,11 @@ def _render_comic_card(comic: UiComic) -> str:
 
 def _render_library_rows(state: LocalUiState) -> str:
     if not state.comics:
-        return '            <tr><td colspan="3" class="empty">No comics in local library yet.</td></tr>'
+        return '            <tr><td colspan="3" class="empty">本地库暂未保存漫画。</td></tr>'
     rows = []
     for comic in state.comics[:20]:
-        checked = comic.last_checked_at or comic.updated_at or "never"
-        latest = comic.latest_chapter_title or "unknown"
+        checked = comic.last_checked_at or comic.updated_at or "从未检查"
+        latest = comic.latest_chapter_title or "未知"
         rows.append(
             "            "
             f"<tr><td>{_e(comic.title)}</td><td>{_e(latest)}</td><td>{_e(checked)}</td></tr>"
@@ -336,34 +345,34 @@ def _render_detail(state: LocalUiState) -> str:
     comic = state.selected_comic
     if comic is None:
         return """        <div class="card">
-          <h2>Comic Detail</h2>
-          <div class="comic-title">No comic selected</div>
-          <p class="empty">Save public metadata first to populate this panel.</p>
-          <h3>Local Chapters</h3>
-          <p class="empty">No chapters for the selected comic yet.</p>
-          <button type="button" disabled>Sync Detail - planned</button>
-          <button type="button" disabled>Add Watch - planned</button>
+          <h2>漫画详情</h2>
+          <div class="comic-title">尚未选择漫画</div>
+          <p class="empty">先保存公开元数据后，这里会显示详情。</p>
+          <h3>本地章节</h3>
+          <p class="empty">当前漫画暂无本地章节。</p>
+          <button type="button" disabled>同步详情 - 规划中</button>
+          <button type="button" disabled>加入追更 - 规划中</button>
         </div>"""
 
-    detail_url = comic.detail_url or "unknown"
+    detail_url = comic.detail_url or "未知"
     summary = f'          <p class="muted">{_e(comic.summary)}</p>\n' if comic.summary else ""
     return f"""        <div class="card">
-          <h2>Comic Detail</h2>
+          <h2>漫画详情</h2>
           <div class="comic-title">{_e(comic.title)}</div>
           <div class="meta-row">
 {_render_comic_meta(comic, include_source_id=True)}
           </div>
-          <p class="muted">Detail URL: {_e(detail_url)}</p>
-{summary}          <h3>Local Chapters</h3>
+          <p class="muted">详情地址：{_e(detail_url)}</p>
+{summary}          <h3>本地章节</h3>
 {_render_detail_chapters(state)}
-          <button type="button" disabled>Sync Detail - planned</button>
-          <button type="button" disabled>Add Watch - planned</button>
+          <button type="button" disabled>同步详情 - 规划中</button>
+          <button type="button" disabled>加入追更 - 规划中</button>
         </div>"""
 
 
 def _render_detail_chapters(state: LocalUiState) -> str:
     if not state.chapters:
-        return '          <p class="empty">No local chapters saved for this comic yet.</p>'
+        return '          <p class="empty">当前漫画尚未保存本地章节。</p>'
     rows = []
     for index, chapter in enumerate(state.chapters[:12], start=1):
         order = chapter.chapter_order if chapter.chapter_order is not None else index
@@ -372,8 +381,8 @@ def _render_detail_chapters(state: LocalUiState) -> str:
             f"<tr><td>{_e(order)}</td><td>{_e(chapter.title)}</td>"
             f"<td>{_e(chapter.chapter_url)}</td></tr>"
         )
-    return f"""          <table class="table" aria-label="Selected comic chapters">
-            <thead><tr><th>Order</th><th>Chapter</th><th>Chapter URL</th></tr></thead>
+    return f"""          <table class="table" aria-label="选中漫画章节">
+            <thead><tr><th>顺序</th><th>章节</th><th>章节地址</th></tr></thead>
             <tbody>
 {chr(10).join(rows)}
             </tbody>
@@ -384,14 +393,14 @@ def _render_watchlist(state: LocalUiState) -> str:
     rows = []
     if not state.watchlist_entries:
         rows.append(
-            '              <tr><td colspan="4" class="empty">No watched comics yet.</td></tr>'
+            '              <tr><td colspan="4" class="empty">暂无追更漫画。</td></tr>'
         )
     else:
         for entry in state.watchlist_entries[:20]:
-            checked = entry.last_checked_at or "never"
-            notes = entry.notes or "none"
+            checked = entry.last_checked_at or "从未检查"
+            notes = entry.notes or "无备注"
             status_class = "status" if entry.last_checked_at else "status planned"
-            status_text = "ready" if entry.last_checked_at else "planned check"
+            status_text = "已检查" if entry.last_checked_at else "待检查"
             rows.append(
                 "              "
                 f"<tr><td>{_e(entry.comic.title)}</td><td>{_e(checked)}</td><td>{_e(notes)}</td>"
@@ -399,9 +408,9 @@ def _render_watchlist(state: LocalUiState) -> str:
             )
     body = "\n".join(rows)
     return f"""        <div class="card" id="watchlist">
-          <h2>Watchlist</h2>
+          <h2>追更</h2>
           <table class="table">
-            <thead><tr><th>Comic</th><th>Last checked</th><th>Notes</th><th>Status</th></tr></thead>
+            <thead><tr><th>漫画</th><th>最后检查</th><th>备注</th><th>状态</th></tr></thead>
             <tbody>
 {body}
             </tbody>
@@ -413,7 +422,7 @@ def _render_update_history(state: LocalUiState) -> str:
     rows = []
     if not state.history_rows:
         rows.append(
-            '              <tr><td colspan="3" class="empty">No local update history yet.</td></tr>'
+            '              <tr><td colspan="3" class="empty">暂无本地更新历史。</td></tr>'
         )
     else:
         for row in state.history_rows:
@@ -424,19 +433,19 @@ def _render_update_history(state: LocalUiState) -> str:
             )
     schedule = state.watch_schedule
     if schedule is None:
-        schedule_line = "No local watch schedule configured."
+        schedule_line = "尚未配置本地追更计划。"
     else:
-        enabled = "enabled" if schedule.enabled else "disabled"
+        enabled = "已启用" if schedule.enabled else "已禁用"
         schedule_line = (
-            f"{schedule.source}: every {schedule.interval_minutes} minutes, "
-            f"{enabled}, next run {schedule.next_run_at}"
+            f"{schedule.source}：每 {schedule.interval_minutes} 分钟，"
+            f"{enabled}，下次检查 {schedule.next_run_at}"
         )
     return f"""        <div class="card" id="update-history">
-          <h2>Update History</h2>
-          <p><strong>Database:</strong> {_e(state.data_status)}</p>
-          <p><strong>Watch schedule:</strong> {_e(schedule_line)}</p>
+          <h2>更新历史</h2>
+          <p><strong>数据库：</strong>{_e(state.data_status)}</p>
+          <p><strong>追更计划：</strong>{_e(schedule_line)}</p>
           <table class="table">
-            <thead><tr><th>Type</th><th>Comic</th><th>Detail</th></tr></thead>
+            <thead><tr><th>类型</th><th>漫画</th><th>详情</th></tr></thead>
             <tbody>
 {chr(10).join(rows)}
             </tbody>
@@ -451,54 +460,54 @@ def _render_downloads(state: LocalUiState, *, use_fallback_preview: bool) -> str
             for chapter in state.chapters[:12]
         )
     else:
-        chapter_controls = '            <p class="empty">No local chapters available yet.</p>'
+        chapter_controls = '            <p class="empty">暂无可选本地章节。</p>'
     preview = DOWNLOAD_LAYOUT_PREVIEW if use_fallback_preview else _download_preview(state)
     return f"""        <div class="card" id="downloads">
-          <h2>Downloads</h2>
-          <div class="queue-tabs" aria-label="Download queue tabs">
-            <span>Pending</span><span>Completed</span><span>Failed</span>
+          <h2>下载</h2>
+          <div class="queue-tabs" aria-label="下载队列标签">
+            <span>待处理</span><span>已完成</span><span>失败</span>
           </div>
-          <h3>Chapter Selector</h3>
+          <h3>章节选择</h3>
           <div class="chapter-grid">
 {chapter_controls}
           </div>
-          <button type="button" disabled>Download selected chapters - planned</button>
-          <button type="button" disabled>Retry failed - planned</button>
-          <p class="muted">Queue status: planned only; no downloader engine is active in Unit 16.</p>
-          <h3>Folder Preview</h3>
+          <button type="button" disabled>下载选中章节 - 规划中</button>
+          <button type="button" disabled>重试失败任务 - 规划中</button>
+          <p class="muted">队列状态：仅作规划展示；当前单元未启用下载引擎。</p>
+          <h3>目录预览</h3>
           <code>{_e(preview)}</code>
         </div>"""
 
 
 def _render_settings(state: LocalUiState) -> str:
     return f"""      <div class="card" id="settings">
-        <h2>Settings</h2>
+        <h2>设置</h2>
         <div class="settings-grid">
-          <label for="database-path">Database path</label>
+          <label for="database-path">数据库路径</label>
           <input id="database-path" value="{_e(state.database_path)}">
-          <label for="download-root">Download root</label>
-          <input id="download-root" value="~/PanelScout Downloads">
-          <label for="concurrency">Download concurrency</label>
+          <label for="download-root">下载根目录</label>
+          <input id="download-root" value="~/PanelScout 下载">
+          <label for="concurrency">下载并发数</label>
           <input id="concurrency" value="1" disabled>
-          <label for="rate-limit">Rate limit</label>
-          <input id="rate-limit" value="1 request every 3 seconds" disabled>
+          <label for="rate-limit">限速</label>
+          <input id="rate-limit" value="每 3 秒 1 次请求" disabled>
         </div>
-        <p><span class="status planned">Downloader controls planned/disabled</span></p>
+        <p><span class="status planned">下载控件规划中/已禁用</span></p>
       </div>"""
 
 
 def _render_comic_meta(comic: UiComic, *, include_source_id: bool) -> str:
     parts = []
     if comic.author:
-        parts.append(f"author: {comic.author}")
+        parts.append(f"作者：{comic.author}")
     if comic.latest_chapter_title:
-        parts.append(f"latest: {comic.latest_chapter_title}")
+        parts.append(f"最新：{comic.latest_chapter_title}")
     if comic.status:
-        parts.append(f"status: {comic.status}")
+        parts.append(f"状态：{comic.status}")
     if include_source_id:
-        parts.append(f"source id: {comic.source_comic_id}")
+        parts.append(f"来源 ID：{comic.source_comic_id}")
     if not parts:
-        parts.append(f"source: {comic.source}")
+        parts.append(f"来源：{comic.source}")
     return "\n".join(f"          <span>{_e(part)}</span>" for part in parts)
 
 
@@ -524,4 +533,4 @@ def _e(value: object) -> str:
 
 
 def _anchor(label: str) -> str:
-    return label.lower().replace(" ", "-")
+    return NAV_ANCHORS.get(label, label.lower().replace(" ", "-"))
