@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.22
+Version: 0.23
 
 Date: 2026-07-20
 
@@ -555,16 +555,17 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 17.
+Current accepted range: Unit 1 through Unit 18.
 
-Latest accepted Unit: Unit 17, Chinese Local UI Copy Baseline.
+Latest accepted Unit: Unit 18, Downloader Planner Baseline.
 
 High-level milestone status:
 
 - MVP 1: Project skeleton, SQLite storage, exporters, anonymous parser fixtures, robots policy, fetcher baseline, public search workflow, and safe CLI search integration are accepted.
 - MVP 2: Public detail sync, chapter metadata upsert, safe CLI sync integration, richer sync result, and report output are accepted. Authenticated Session Mode remains deferred to MVP 5.
 - MVP 3: Local watchlist, public watch update checks, Markdown watch reports, and local suggested watch schedule baseline are accepted.
-- MVP 4: Static local UI shell, local SQLite data binding, and Chinese UI copy baseline are accepted. Real download execution, queue runtime, and settings persistence remain pending.
+- Minimum search-to-download line: Search, save, public detail/chapter sync, and downloader planner baseline are accepted. Chapter image discovery and opt-in image save remain pending.
+- MVP 4: Static local UI shell, local SQLite data binding, and Chinese UI copy baseline are accepted. New UI polish is paused until the minimum download line is usable.
 - MVP 5: Authenticated Session Mode is not started.
 
 ## 16. Next Unit Plan
@@ -573,7 +574,7 @@ Current priority: complete the minimum search-to-download business line.
 
 Planned next Units:
 
-- Unit 18: Downloader planner baseline. Define local download plan records, filename-safe comic/chapter/page paths, collision handling, skip/resume decisions, and permission-note fields. No image fetching yet.
+- Unit 18: Downloader planner baseline. Status: accepted; no image fetching introduced.
 - Unit 19: Public chapter image discovery fixtures and parser. Parse image URLs or image descriptors from saved public chapter HTML fixtures only. No live chapter image requests yet.
 - Unit 20: Opt-in CLI download dry-run. Given a saved comic/chapter, print the planned local files and safety notes without fetching images.
 - Unit 21: Opt-in CLI image save baseline. Fetch explicitly selected public chapter images with conservative delays, temporary files, extension preservation, skip/resume behavior, and clear errors. No auth, bypass, or background queue.

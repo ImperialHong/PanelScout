@@ -518,3 +518,32 @@ Validation summary:
 - `git diff --check` passed.
 - Generated HTML scan found no old English UI copy such as `Search`, `Local Library`, `Watchlist`, `Download selected chapters - planned`, or `Retry failed - planned`.
 - Agent2 validation passed.
+
+### Unit 18: Downloader Planner Baseline
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/downloader/__init__.py`
+- `src/panelscout/downloader/planner.py`
+- `tests/test_downloader_planner.py`
+
+Validation summary:
+
+- Added pure downloader planning models for image candidates, plan items, and chapter download plans.
+- `build_download_plan` creates local target paths using `download_root/comic_title/chapter_title/page_number.ext`.
+- Comic and chapter path segments are filename-safe and fall back safely when the title is empty or only invalid path characters.
+- Image extension inference preserves known extensions from explicit metadata or source URLs without fetching images.
+- Duplicate planned filenames receive stable numeric suffixes.
+- Existing complete files plan as `skip_existing`; existing `.part` files plan as `resume_partial`; missing files plan as `download`.
+- Download plans require a nonblank permission note for future local auditability.
+- The planner does not create directories, write files, fetch pages, fetch images, authenticate, run browsers, or start background work.
+- Focused `tests.test_downloader_planner` checks passed with 5 tests.
+- Full `unittest discover` passed with 85 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
