@@ -563,6 +563,338 @@ class CliTests(unittest.TestCase):
         self.assertEqual(source_stdout, "")
         self.assertIn("unsupported watch source 'example'", source_stderr)
 
+    def test_watch_check_persists_public_updates_from_configured_database(self):
+        updated = (
+            FIXTURE_ROOT / "details_15599_updated_with_chapters.html"
+        ).read_text(encoding="utf-8")
+        factory = FakeSyncUrlMapFetcherFactory(
+            {
+                "https://manhua.zaimanhua.com/details/15599": updated,
+            }
+        )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with connect_database(database_path) as connection:
+                repository = ComicRepository(connection)
+                comic = repository.upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="15599",
+                        title="伪恋同盟",
+                        author="榊葵/绫乃",
+                        status="已完结",
+                        latest_chapter_title="第002话",
+                        detail_url="https://manhua.zaimanhua.com/details/15599",
+                    )
+                )
+                repository.add_watchlist_entry("zaimanhua", "15599")
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "watch", "check"],
+                sync_fetcher_factory=factory,
+            )
+            with connect_database(database_path) as connection:
+                repository = ComicRepository(connection)
+                chapters = repository.list_chapters(comic.id or -1)
+                entry = repository.get_watchlist_entry("zaimanhua", "15599")
+
+        self.assertEqual(code, 0)
+        self.assertIn("Watch check complete", stdout)
+        self.assertIn("Checked: 1", stdout)
+        self.assertIn("Succeeded: 1", stdout)
+        self.assertIn("Failed: 0", stdout)
+        self.assertIn("New chapters: 3", stdout)
+        self.assertIn("Metadata changes: 4", stdout)
+        self.assertIn("第003话 重新开始", stdout)
+        self.assertEqual(stderr, "")
+        self.assertEqual(
+            factory.fetcher.urls,
+            ["https://manhua.zaimanhua.com/details/15599"],
+        )
+        self.assertEqual(len(chapters), 3)
+        self.assertIsNotNone(entry)
+        assert entry is not None
+        self.assertIsNotNone(entry.last_checked_at)
+
+    def test_watch_check_empty_list_and_limit_are_local_and_clear(self):
+        factory = FakeSyncUrlMapFetcherFactory({})
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "watch", "check", "--limit", "1"],
+                sync_fetcher_factory=factory,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertIn("Checked: 0", stdout)
+        self.assertIn("No watched comics to check.", stdout)
+        self.assertEqual(stderr, "")
+        self.assertEqual(factory.fetcher.urls, [])
+
+    def test_watch_check_reports_item_failure_without_aborting_batch(self):
+        updated = (
+            FIXTURE_ROOT / "details_15599_updated_with_chapters.html"
+        ).read_text(encoding="utf-8")
+        factory = FakeSyncUrlMapFetcherFactory(
+            {
+                "https://manhua.zaimanhua.com/details/15599": updated,
+            }
+        )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with connect_database(database_path) as connection:
+                repository = ComicRepository(connection)
+                repository.upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="15599",
+                        title="伪恋同盟",
+                    )
+                )
+                repository.upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="404",
+                        title="Broken Watch",
+                    )
+                )
+                repository.add_watchlist_entry("zaimanhua", "15599")
+                repository.add_watchlist_entry("zaimanhua", "404")
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "watch", "check"],
+                sync_fetcher_factory=factory,
+            )
+
+        self.assertEqual(code, 0)
+        self.assertIn("Checked: 2", stdout)
+        self.assertIn("Succeeded: 1", stdout)
+        self.assertIn("Failed: 1", stdout)
+        self.assertIn("Broken Watch", stdout)
+        self.assertIn("status: failed", stdout)
+        self.assertIn("No fixture for", stdout)
+        self.assertEqual(stderr, "")
+
+    def test_watch_check_writes_markdown_report_when_requested(self):
+        updated = (
+            FIXTURE_ROOT / "details_15599_updated_with_chapters.html"
+        ).read_text(encoding="utf-8")
+        factory = FakeSyncUrlMapFetcherFactory(
+            {
+                "https://manhua.zaimanhua.com/details/15599": updated,
+            }
+        )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            report_path = root / "reports" / "watch-check.md"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with connect_database(database_path) as connection:
+                repository = ComicRepository(connection)
+                repository.upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="15599",
+                        title="伪恋同盟",
+                        latest_chapter_title="第002话",
+                    )
+                )
+                repository.add_watchlist_entry("zaimanhua", "15599")
+
+            code, stdout, stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "watch",
+                    "check",
+                    "--report",
+                    str(report_path),
+                ],
+                sync_fetcher_factory=factory,
+            )
+            report = report_path.read_text(encoding="utf-8")
+
+        self.assertEqual(code, 0)
+        self.assertIn(f"Report: {report_path}", stdout)
+        self.assertEqual(stderr, "")
+        self.assertIn("# PanelScout Watch Check Report", report)
+        self.assertIn("伪恋同盟R", report)
+        self.assertIn("第003话 重新开始", report)
+        self.assertIn("Latest chapter: 第002话 -> 第003话", report)
+
+    def test_watch_schedule_set_show_and_clear_use_configured_database(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            set_code, set_stdout, set_stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "watch",
+                    "schedule",
+                    "set",
+                    "--interval-minutes",
+                    "120",
+                ]
+            )
+            show_code, show_stdout, show_stderr = run_cli(
+                ["--config", str(config_path), "watch", "schedule", "show"]
+            )
+            clear_code, clear_stdout, clear_stderr = run_cli(
+                ["--config", str(config_path), "watch", "schedule", "clear"]
+            )
+            empty_code, empty_stdout, empty_stderr = run_cli(
+                ["--config", str(config_path), "watch", "schedule", "show"]
+            )
+
+        self.assertEqual(set_code, 0)
+        self.assertIn("Watch schedule set: zaimanhua", set_stdout)
+        self.assertIn("Interval minutes: 120", set_stdout)
+        self.assertEqual(set_stderr, "")
+        self.assertEqual(show_code, 0)
+        self.assertIn("Watch schedule: zaimanhua", show_stdout)
+        self.assertIn("Interval minutes: 120", show_stdout)
+        self.assertEqual(show_stderr, "")
+        self.assertEqual(clear_code, 0)
+        self.assertIn("Watch schedule cleared: zaimanhua", clear_stdout)
+        self.assertEqual(clear_stderr, "")
+        self.assertEqual(empty_code, 0)
+        self.assertIn("No watch schedule configured for zaimanhua.", empty_stdout)
+        self.assertEqual(empty_stderr, "")
+
+    def test_watch_schedule_due_is_local_and_rejects_bad_input(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with connect_database(database_path) as connection:
+                ComicRepository(connection).set_watch_check_schedule(
+                    "zaimanhua",
+                    interval_minutes=1,
+                    now="2026-01-01T00:00:00+00:00",
+                )
+
+            due_code, due_stdout, due_stderr = run_cli(
+                ["--config", str(config_path), "watch", "schedule", "due"]
+            )
+            invalid_interval_code, invalid_interval_stdout, invalid_interval_stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "watch",
+                    "schedule",
+                    "set",
+                    "--interval-minutes",
+                    "0",
+                ]
+            )
+            invalid_source_code, invalid_source_stdout, invalid_source_stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "watch",
+                    "schedule",
+                    "show",
+                    "--source",
+                    "example",
+                ]
+            )
+
+        self.assertEqual(due_code, 0)
+        self.assertIn("Due watch check schedules: 1", due_stdout)
+        self.assertEqual(due_stderr, "")
+        self.assertEqual(invalid_interval_code, 1)
+        self.assertEqual(invalid_interval_stdout, "")
+        self.assertIn("interval must be at least 1 minute", invalid_interval_stderr)
+        self.assertEqual(invalid_source_code, 1)
+        self.assertEqual(invalid_source_stdout, "")
+        self.assertIn("unsupported watch schedule source 'example'", invalid_source_stderr)
+
 
 class FakeSearchFetcherFactory:
     def __init__(self, html: str) -> None:
@@ -648,6 +980,34 @@ class FakeSyncSequenceFetcher:
             status_code=200,
             content_type="text/html; charset=utf-8",
             text=self.html_pages.pop(0),
+        )
+
+
+class FakeSyncUrlMapFetcherFactory:
+    def __init__(self, html_by_url: dict[str, str]) -> None:
+        self.fetcher = FakeSyncUrlMapFetcher(html_by_url)
+        self.configs = []
+
+    def __call__(self, config):
+        self.configs.append(config)
+        return self.fetcher
+
+
+class FakeSyncUrlMapFetcher:
+    def __init__(self, html_by_url: dict[str, str]) -> None:
+        self.html_by_url = html_by_url
+        self.urls: list[str] = []
+
+    def fetch_html(self, url: str) -> FetchedHtml:
+        self.urls.append(url)
+        html = self.html_by_url.get(url)
+        if html is None:
+            raise RuntimeError(f"No fixture for {url}")
+        return FetchedHtml(
+            url=url,
+            status_code=200,
+            content_type="text/html; charset=utf-8",
+            text=html,
         )
 
 

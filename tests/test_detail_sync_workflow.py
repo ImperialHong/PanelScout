@@ -1,9 +1,9 @@
 from pathlib import Path
 import unittest
 
-from panelscout.crawler.engine import sync_public_detail
+from panelscout.crawler.engine import check_watchlist_public_updates, sync_public_detail
 from panelscout.crawler.fetcher import FetchedHtml
-from panelscout.storage import ComicRepository, connect_database
+from panelscout.storage import Comic, ComicRepository, connect_database
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "zaimanhua"
 
@@ -139,6 +139,73 @@ class PublicDetailSyncWorkflowTests(unittest.TestCase):
 
         self.assertEqual(fetcher.urls, [])
 
+    def test_watchlist_check_syncs_watched_comics_and_continues_after_failure(self):
+        initial = (FIXTURE_ROOT / "details_15599_with_chapters.html").read_text(
+            encoding="utf-8"
+        )
+        updated = (
+            FIXTURE_ROOT / "details_15599_updated_with_chapters.html"
+        ).read_text(encoding="utf-8")
+        fetcher = FakeUrlMapFetcher(
+            {
+                "https://manhua.zaimanhua.com/details/15599": updated,
+            }
+        )
+
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+            sync_public_detail("15599", FakeFetcher(initial), repository)
+            repository.add_watchlist_entry("zaimanhua", "15599")
+            repository.upsert_comic(
+                Comic(
+                    source="zaimanhua",
+                    source_comic_id="404",
+                    title="Broken Watch",
+                )
+            )
+            repository.add_watchlist_entry("zaimanhua", "404")
+
+            result = check_watchlist_public_updates(fetcher, repository)
+            watched = repository.get_watchlist_entry("zaimanhua", "15599")
+            failed = repository.get_watchlist_entry("zaimanhua", "404")
+
+        self.assertEqual(result.checked_count, 2)
+        self.assertEqual(result.success_count, 1)
+        self.assertEqual(result.failure_count, 1)
+        self.assertEqual(result.new_chapter_count, 1)
+        self.assertEqual(result.metadata_change_count, 4)
+        self.assertEqual(
+            fetcher.urls,
+            [
+                "https://manhua.zaimanhua.com/details/404",
+                "https://manhua.zaimanhua.com/details/15599",
+            ],
+        )
+        self.assertEqual(result.items[0].entry.comic.source_comic_id, "404")
+        self.assertIn("No fixture for", result.items[0].error or "")
+        self.assertEqual(result.items[1].entry.comic.source_comic_id, "15599")
+        assert result.items[1].sync_result is not None
+        self.assertEqual(
+            [chapter.title for chapter in result.items[1].sync_result.new_chapters],
+            ["第003话 重新开始"],
+        )
+        self.assertIsNotNone(watched)
+        self.assertIsNotNone(failed)
+        assert watched is not None
+        assert failed is not None
+        self.assertIsNotNone(watched.last_checked_at)
+        self.assertIsNotNone(failed.last_checked_at)
+
+    def test_watchlist_check_empty_watchlist_succeeds_without_fetching(self):
+        fetcher = FakeFetcher("<html></html>")
+
+        with connect_database(":memory:") as connection:
+            result = check_watchlist_public_updates(fetcher, ComicRepository(connection))
+
+        self.assertEqual(result.checked_count, 0)
+        self.assertEqual(result.items, ())
+        self.assertEqual(fetcher.urls, [])
+
 
 class FakeFetcher:
     def __init__(self, html: str) -> None:
@@ -169,6 +236,24 @@ class FakeSequenceFetcher:
             status_code=200,
             content_type="text/html; charset=utf-8",
             text=self.html_pages.pop(0),
+        )
+
+
+class FakeUrlMapFetcher:
+    def __init__(self, html_by_url: dict[str, str]) -> None:
+        self.html_by_url = html_by_url
+        self.urls: list[str] = []
+
+    def fetch_html(self, url: str) -> FetchedHtml:
+        self.urls.append(url)
+        html = self.html_by_url.get(url)
+        if html is None:
+            raise RuntimeError(f"No fixture for {url}")
+        return FetchedHtml(
+            url=url,
+            status_code=200,
+            content_type="text/html; charset=utf-8",
+            text=html,
         )
 
 

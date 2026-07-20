@@ -16,6 +16,7 @@ from panelscout.crawler import (
     HtmlFetcher,
     RobotsDisallowedError,
     RobotsLoadError,
+    check_watchlist_public_updates,
     load_robots_policy,
     normalize_detail_reference,
     search_public_comics,
@@ -25,6 +26,7 @@ from panelscout.exporters import (
     export_comics_csv,
     export_comics_json,
     export_comics_markdown,
+    export_watch_check_markdown,
 )
 from panelscout.storage import ComicRepository, StorageError, connect_database
 
@@ -118,6 +120,83 @@ def build_parser() -> argparse.ArgumentParser:
         help="Source adapter to use. Defaults to the configured source.",
     )
     watch_remove.set_defaults(handler=_handle_watch_remove)
+    watch_check = watch_subparsers.add_parser(
+        "check",
+        help="Check watched comics for public metadata updates.",
+    )
+    watch_check.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="Maximum number of watchlist entries to check.",
+    )
+    watch_check.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+    watch_check.add_argument(
+        "--report",
+        help="Optional Markdown file path for the watch check report.",
+    )
+    watch_check.set_defaults(handler=_handle_watch_check)
+    watch_schedule = watch_subparsers.add_parser(
+        "schedule",
+        help="Manage local suggested watch check schedules.",
+    )
+    watch_schedule_subparsers = watch_schedule.add_subparsers(
+        dest="watch_schedule_command"
+    )
+    watch_schedule_show = watch_schedule_subparsers.add_parser(
+        "show",
+        help="Show the local watch check schedule.",
+    )
+    watch_schedule_show.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+    watch_schedule_show.set_defaults(handler=_handle_watch_schedule_show)
+    watch_schedule_set = watch_schedule_subparsers.add_parser(
+        "set",
+        help="Set a local suggested watch check schedule.",
+    )
+    watch_schedule_set.add_argument(
+        "--interval-minutes",
+        type=int,
+        required=True,
+        help="Suggested minutes between manual watch checks.",
+    )
+    watch_schedule_set.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+    watch_schedule_set.set_defaults(handler=_handle_watch_schedule_set)
+    watch_schedule_clear = watch_schedule_subparsers.add_parser(
+        "clear",
+        help="Clear the local watch check schedule.",
+    )
+    watch_schedule_clear.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+    watch_schedule_clear.set_defaults(handler=_handle_watch_schedule_clear)
+    watch_schedule_due = watch_schedule_subparsers.add_parser(
+        "due",
+        help="Show whether a local watch check schedule is due.",
+    )
+    watch_schedule_due.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+    watch_schedule_due.set_defaults(handler=_handle_watch_schedule_due)
+    watch_schedule.set_defaults(
+        handler=_handle_watch_schedule_show,
+        watch_schedule_command="show",
+    )
     watch_parser.set_defaults(handler=_handle_watch_list, watch_command="list", limit=100)
 
     export_parser = subparsers.add_parser("export", help="Export collected metadata.")
@@ -158,6 +237,12 @@ def main(
         if args.command == "search" and search_fetcher_factory is not None:
             args.search_fetcher_factory = search_fetcher_factory
         if args.command == "sync" and sync_fetcher_factory is not None:
+            args.sync_fetcher_factory = sync_fetcher_factory
+        if (
+            args.command == "watch"
+            and getattr(args, "watch_command", None) == "check"
+            and sync_fetcher_factory is not None
+        ):
             args.sync_fetcher_factory = sync_fetcher_factory
         handler = getattr(args, "handler", None)
         if handler is None:
@@ -434,6 +519,119 @@ def _handle_watch_remove(args: argparse.Namespace, config) -> int:
     return 0
 
 
+def _handle_watch_check(args: argparse.Namespace, config) -> int:
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported watch source '{source}'", file=sys.stderr)
+        return 1
+
+    factory = getattr(args, "sync_fetcher_factory", None) or _create_sync_fetcher
+    try:
+        fetcher = factory(config)
+        with connect_database(config.database_path) as connection:
+            result = check_watchlist_public_updates(
+                fetcher,
+                ComicRepository(connection),
+                limit=args.limit,
+            )
+    except RobotsLoadError as error:
+        print(
+            f"panelscout: robots policy unavailable; watch check aborted: {error}",
+            file=sys.stderr,
+        )
+        return 1
+    except RobotsDisallowedError as error:
+        print(f"panelscout: robots policy disallowed watch check: {error}", file=sys.stderr)
+        return 1
+    except FetchError as error:
+        print(f"panelscout: watch check fetcher setup failed: {error}", file=sys.stderr)
+        return 1
+
+    if args.report:
+        report_path = Path(args.report).expanduser()
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(export_watch_check_markdown(result), encoding="utf-8")
+
+    print(_format_watch_check_result(result))
+    if args.report:
+        print(f"Report: {report_path}")
+    return 0
+
+
+def _handle_watch_schedule_show(args: argparse.Namespace, config) -> int:
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported watch schedule source '{source}'", file=sys.stderr)
+        return 1
+
+    with connect_database(config.database_path) as connection:
+        schedule = ComicRepository(connection).get_watch_check_schedule(source)
+
+    print(_format_watch_schedule(schedule, source=source))
+    return 0
+
+
+def _handle_watch_schedule_set(args: argparse.Namespace, config) -> int:
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported watch schedule source '{source}'", file=sys.stderr)
+        return 1
+
+    try:
+        with connect_database(config.database_path) as connection:
+            schedule = ComicRepository(connection).set_watch_check_schedule(
+                source,
+                interval_minutes=args.interval_minutes,
+            )
+    except StorageError as error:
+        print(f"panelscout: watch schedule set failed: {error}", file=sys.stderr)
+        return 1
+
+    print(f"Watch schedule set: {schedule.source}")
+    print(f"Interval minutes: {schedule.interval_minutes}")
+    print(f"Next run: {schedule.next_run_at}")
+    return 0
+
+
+def _handle_watch_schedule_clear(args: argparse.Namespace, config) -> int:
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported watch schedule source '{source}'", file=sys.stderr)
+        return 1
+
+    with connect_database(config.database_path) as connection:
+        removed = ComicRepository(connection).clear_watch_check_schedule(source)
+
+    if removed:
+        print(f"Watch schedule cleared: {source}")
+    else:
+        print(f"No watch schedule configured for {source}.")
+    return 0
+
+
+def _handle_watch_schedule_due(args: argparse.Namespace, config) -> int:
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported watch schedule source '{source}'", file=sys.stderr)
+        return 1
+
+    with connect_database(config.database_path) as connection:
+        schedules = [
+            schedule
+            for schedule in ComicRepository(connection).list_due_watch_check_schedules()
+            if schedule.source == source
+        ]
+
+    if not schedules:
+        print(f"No watch check schedule due for {source}.")
+        return 0
+
+    print(f"Due watch check schedules: {len(schedules)}")
+    for schedule in schedules:
+        print(f"- {schedule.source}: next run {schedule.next_run_at}")
+    return 0
+
+
 def _format_watchlist_entries(entries) -> str:
     lines = [f"Watchlist entries: {len(entries)}", ""]
     if not entries:
@@ -451,6 +649,65 @@ def _format_watchlist_entries(entries) -> str:
             lines.append(f"   url: {comic.detail_url}")
         if entry.notes:
             lines.append(f"   notes: {entry.notes}")
+    return "\n".join(lines)
+
+
+def _format_watch_schedule(schedule, *, source: str) -> str:
+    if schedule is None:
+        return f"No watch schedule configured for {source}."
+
+    lines = [
+        f"Watch schedule: {schedule.source}",
+        f"Enabled: {'yes' if schedule.enabled else 'no'}",
+        f"Interval minutes: {schedule.interval_minutes}",
+        f"Next run: {schedule.next_run_at}",
+    ]
+    if schedule.last_run_at:
+        lines.append(f"Last run: {schedule.last_run_at}")
+    return "\n".join(lines)
+
+
+def _format_watch_check_result(result) -> str:
+    lines = [
+        "Watch check complete",
+        f"Checked: {result.checked_count}",
+        f"Succeeded: {result.success_count}",
+        f"Failed: {result.failure_count}",
+        f"New chapters: {result.new_chapter_count}",
+        f"Metadata changes: {result.metadata_change_count}",
+        "",
+    ]
+
+    if not result.items:
+        lines.append("No watched comics to check.")
+        return "\n".join(lines)
+
+    for index, item in enumerate(result.items, start=1):
+        comic = item.entry.comic
+        lines.append(f"{index}. {comic.title}")
+        lines.append(f"   id: {comic.source_comic_id}")
+        if item.error:
+            lines.append(f"   status: failed")
+            lines.append(f"   error: {item.error}")
+            continue
+
+        assert item.sync_result is not None
+        sync_result = item.sync_result
+        lines.append("   status: checked")
+        lines.append(f"   new chapters: {sync_result.new_chapter_count}")
+        lines.append(f"   metadata changes: {len(sync_result.metadata_changes)}")
+        if sync_result.new_chapters:
+            lines.append("   new chapter details:")
+            for chapter in sync_result.new_chapters:
+                lines.append(f"   - {chapter.title}")
+        if sync_result.metadata_changes:
+            lines.append("   metadata change details:")
+            for change in sync_result.metadata_changes:
+                lines.append(
+                    f"   - {_display_metadata_field(change.field)}: "
+                    f"{_display_optional(change.previous)} -> "
+                    f"{_display_optional(change.current)}"
+                )
     return "\n".join(lines)
 
 

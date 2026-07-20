@@ -30,10 +30,11 @@ class StorageTests(unittest.TestCase):
         self.assertIn("comics", table_names)
         self.assertIn("chapters", table_names)
         self.assertIn("watchlist_entries", table_names)
+        self.assertIn("watch_check_schedules", table_names)
         self.assertIn("crawl_jobs", table_names)
         self.assertIn("crawl_logs", table_names)
         self.assertIn("auth_sessions", table_names)
-        self.assertIn(2, migrations)
+        self.assertIn(3, migrations)
 
     def test_upserts_and_searches_comics(self):
         with connect_database(":memory:") as connection:
@@ -234,6 +235,68 @@ class StorageTests(unittest.TestCase):
             entries = repository.list_watchlist_entries()
 
         self.assertEqual(entries, [])
+
+    def test_watchlist_entry_checked_time_can_be_updated(self):
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+            repository.upsert_comic(
+                Comic(
+                    source="zaimanhua",
+                    source_comic_id="checked-1",
+                    title="Checked Comic",
+                )
+            )
+            repository.add_watchlist_entry("zaimanhua", "checked-1")
+
+            updated = repository.mark_watchlist_entry_checked(
+                "zaimanhua",
+                "checked-1",
+                checked_at="2026-07-20T01:02:03+00:00",
+            )
+            missing = repository.mark_watchlist_entry_checked("zaimanhua", "missing")
+
+        self.assertIsNotNone(updated)
+        assert updated is not None
+        self.assertEqual(updated.last_checked_at, "2026-07-20T01:02:03+00:00")
+        self.assertIsNone(missing)
+
+    def test_watch_check_schedule_can_be_set_marked_due_and_cleared(self):
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+
+            schedule = repository.set_watch_check_schedule(
+                "zaimanhua",
+                interval_minutes=60,
+                now="2026-07-20T01:00:00+00:00",
+            )
+            not_due = repository.list_due_watch_check_schedules(
+                now="2026-07-20T01:30:00+00:00"
+            )
+            due = repository.list_due_watch_check_schedules(
+                now="2026-07-20T02:00:00+00:00"
+            )
+            marked = repository.mark_watch_check_schedule_run(
+                "zaimanhua",
+                ran_at="2026-07-20T02:00:00+00:00",
+            )
+            removed = repository.clear_watch_check_schedule("zaimanhua")
+            missing_removed = repository.clear_watch_check_schedule("zaimanhua")
+
+        self.assertEqual(schedule.next_run_at, "2026-07-20T02:00:00+00:00")
+        self.assertEqual(not_due, [])
+        self.assertEqual([item.source for item in due], ["zaimanhua"])
+        self.assertIsNotNone(marked)
+        assert marked is not None
+        self.assertEqual(marked.last_run_at, "2026-07-20T02:00:00+00:00")
+        self.assertEqual(marked.next_run_at, "2026-07-20T03:00:00+00:00")
+        self.assertTrue(removed)
+        self.assertFalse(missing_removed)
+
+    def test_watch_check_schedule_rejects_invalid_interval(self):
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+            with self.assertRaises(StorageError):
+                repository.set_watch_check_schedule("zaimanhua", interval_minutes=0)
 
 
 if __name__ == "__main__":

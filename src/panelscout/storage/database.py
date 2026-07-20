@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -70,6 +70,19 @@ CREATE INDEX IF NOT EXISTS idx_watchlist_entries_created_at
 CREATE INDEX IF NOT EXISTS idx_watchlist_entries_last_checked_at
     ON watchlist_entries(last_checked_at);
 
+CREATE TABLE IF NOT EXISTS watch_check_schedules (
+    id INTEGER PRIMARY KEY,
+    source TEXT NOT NULL UNIQUE,
+    interval_minutes INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    next_run_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_check_schedules_next_run_at
+    ON watch_check_schedules(enabled, next_run_at);
+
 CREATE TABLE IF NOT EXISTS crawl_jobs (
     id INTEGER PRIMARY KEY,
     job_type TEXT NOT NULL,
@@ -114,6 +127,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_status ON auth_sessions(status);
 
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
 """
 
 

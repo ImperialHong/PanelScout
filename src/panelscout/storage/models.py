@@ -57,6 +57,19 @@ class WatchlistEntry:
 
 
 @dataclass(frozen=True, kw_only=True)
+class WatchCheckSchedule:
+    """Local suggested schedule for public watchlist checks."""
+
+    source: str
+    interval_minutes: int
+    next_run_at: str
+    id: int | None = None
+    enabled: bool = True
+    last_run_at: str | None = None
+    updated_at: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class CrawlJob:
     """Stored crawl job status.
 

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 import sqlite3
 from typing import Iterable
 
-from panelscout.storage.models import Chapter, Comic, WatchlistEntry
+from panelscout.storage.models import Chapter, Comic, WatchCheckSchedule, WatchlistEntry
 
 
 class ComicRepository:
@@ -297,6 +297,30 @@ class ComicRepository:
         ).fetchone()
         return _watchlist_entry_from_row(row) if row is not None else None
 
+    def mark_watchlist_entry_checked(
+        self,
+        source: str,
+        source_comic_id: str,
+        *,
+        checked_at: str | None = None,
+    ) -> WatchlistEntry | None:
+        """Persist the latest local watchlist check time for a watched comic."""
+
+        comic = self.get_comic_by_source(source, source_comic_id)
+        if comic is None or comic.id is None:
+            return None
+
+        self.connection.execute(
+            """
+            UPDATE watchlist_entries
+            SET last_checked_at = ?
+            WHERE comic_id = ?
+            """,
+            (checked_at or _utc_now(), comic.id),
+        )
+        self.connection.commit()
+        return self.get_watchlist_entry(source, source_comic_id)
+
     def list_watchlist_entries(self, *, limit: int = 100, offset: int = 0) -> list[WatchlistEntry]:
         """List watchlist entries ordered by newest additions first."""
 
@@ -316,6 +340,121 @@ class ComicRepository:
             (_bounded_limit(limit), _non_negative(offset)),
         ).fetchall()
         return [_watchlist_entry_from_row(row) for row in rows]
+
+    def set_watch_check_schedule(
+        self,
+        source: str,
+        *,
+        interval_minutes: int,
+        now: str | None = None,
+        enabled: bool = True,
+    ) -> WatchCheckSchedule:
+        """Create or update a local suggested schedule for watch checks."""
+
+        interval = int(interval_minutes)
+        if interval < 1:
+            raise StorageError("Watch check interval must be at least 1 minute")
+
+        updated_at = now or _utc_now()
+        next_run_at = _add_minutes(updated_at, interval)
+        self.connection.execute(
+            """
+            INSERT INTO watch_check_schedules (
+                source,
+                interval_minutes,
+                enabled,
+                next_run_at,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(source) DO UPDATE SET
+                interval_minutes = excluded.interval_minutes,
+                enabled = excluded.enabled,
+                next_run_at = excluded.next_run_at,
+                updated_at = excluded.updated_at
+            """,
+            (source, interval, int(enabled), next_run_at, updated_at),
+        )
+        self.connection.commit()
+
+        schedule = self.get_watch_check_schedule(source)
+        if schedule is None:
+            raise StorageError("Watch schedule set succeeded but no record could be loaded")
+        return schedule
+
+    def get_watch_check_schedule(self, source: str) -> WatchCheckSchedule | None:
+        """Load a local watch check schedule by source."""
+
+        row = self.connection.execute(
+            """
+            SELECT *
+            FROM watch_check_schedules
+            WHERE source = ?
+            """,
+            (source,),
+        ).fetchone()
+        return _watch_check_schedule_from_row(row) if row is not None else None
+
+    def clear_watch_check_schedule(self, source: str) -> bool:
+        """Remove a local watch check schedule."""
+
+        cursor = self.connection.execute(
+            """
+            DELETE FROM watch_check_schedules
+            WHERE source = ?
+            """,
+            (source,),
+        )
+        self.connection.commit()
+        return cursor.rowcount > 0
+
+    def list_due_watch_check_schedules(
+        self,
+        *,
+        now: str | None = None,
+        limit: int = 100,
+    ) -> list[WatchCheckSchedule]:
+        """List enabled watch check schedules whose next run is due."""
+
+        due_at = now or _utc_now()
+        rows = self.connection.execute(
+            """
+            SELECT *
+            FROM watch_check_schedules
+            WHERE enabled = 1 AND next_run_at <= ?
+            ORDER BY next_run_at ASC, id ASC
+            LIMIT ?
+            """,
+            (due_at, _bounded_limit(limit)),
+        ).fetchall()
+        return [_watch_check_schedule_from_row(row) for row in rows]
+
+    def mark_watch_check_schedule_run(
+        self,
+        source: str,
+        *,
+        ran_at: str | None = None,
+    ) -> WatchCheckSchedule | None:
+        """Record one manual watch check run and move the next suggested time."""
+
+        schedule = self.get_watch_check_schedule(source)
+        if schedule is None:
+            return None
+
+        timestamp = ran_at or _utc_now()
+        next_run_at = _add_minutes(timestamp, schedule.interval_minutes)
+        self.connection.execute(
+            """
+            UPDATE watch_check_schedules
+            SET last_run_at = ?,
+                next_run_at = ?,
+                updated_at = ?
+            WHERE source = ?
+            """,
+            (timestamp, next_run_at, timestamp, source),
+        )
+        self.connection.commit()
+        return self.get_watch_check_schedule(source)
 
 
 class StorageError(RuntimeError):
@@ -367,6 +506,18 @@ def _watchlist_entry_from_row(row: sqlite3.Row) -> WatchlistEntry:
     )
 
 
+def _watch_check_schedule_from_row(row: sqlite3.Row) -> WatchCheckSchedule:
+    return WatchCheckSchedule(
+        id=row["id"],
+        source=row["source"],
+        interval_minutes=row["interval_minutes"],
+        enabled=bool(row["enabled"]),
+        last_run_at=row["last_run_at"],
+        next_run_at=row["next_run_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def _encode_list(values: Iterable[str]) -> str:
     return json.dumps(list(values), ensure_ascii=True)
 
@@ -382,6 +533,18 @@ def _decode_list(value: str | None) -> list[str]:
 
 def _utc_now() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def _add_minutes(timestamp: str, minutes: int) -> str:
+    return (_parse_datetime(timestamp) + timedelta(minutes=minutes)).isoformat()
+
+
+def _parse_datetime(value: str) -> datetime:
+    normalized = value.replace("Z", "+00:00")
+    parsed = datetime.fromisoformat(normalized)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed
 
 
 def _bounded_limit(value: int) -> int:

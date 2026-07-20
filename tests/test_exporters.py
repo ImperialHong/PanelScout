@@ -9,12 +9,19 @@ import unittest
 from unittest.mock import patch
 
 from panelscout.cli import main
+from panelscout.crawler.engine import (
+    MetadataChange,
+    PublicDetailSyncResult,
+    WatchlistCheckItemResult,
+    WatchlistCheckResult,
+)
 from panelscout.exporters import (
     export_comics_csv,
     export_comics_json,
     export_comics_markdown,
+    export_watch_check_markdown,
 )
-from panelscout.storage import Comic, ComicRepository, connect_database
+from panelscout.storage import Chapter, Comic, ComicRepository, WatchlistEntry, connect_database
 
 
 class ExporterTests(unittest.TestCase):
@@ -52,6 +59,56 @@ class ExporterTests(unittest.TestCase):
         rendered = export_comics_markdown([])
 
         self.assertIn("_No stored comics._", rendered)
+
+    def test_exports_watch_check_markdown_report(self):
+        comic = _sample_comic()
+        result = WatchlistCheckResult(
+            checked_count=1,
+            success_count=1,
+            failure_count=0,
+            new_chapter_count=1,
+            metadata_change_count=1,
+            items=(
+                WatchlistCheckItemResult(
+                    entry=WatchlistEntry(
+                        id=7,
+                        comic=comic,
+                        last_checked_at="2026-07-20T02:00:00+00:00",
+                    ),
+                    sync_result=PublicDetailSyncResult(
+                        reference="sample-1",
+                        detail_url=comic.detail_url or "",
+                        comic=comic,
+                        chapters=(),
+                        new_chapters=(
+                            Chapter(
+                                comic_id=1,
+                                title="Chapter 4",
+                                chapter_url="https://example.test/chapter-4",
+                            ),
+                        ),
+                        metadata_changes=(
+                            MetadataChange(
+                                field="latest_chapter_title",
+                                previous="Chapter 3",
+                                current="Chapter 4",
+                            ),
+                        ),
+                        chapter_count=4,
+                        new_chapter_count=1,
+                        existing_chapter_count=3,
+                    ),
+                ),
+            ),
+        )
+
+        rendered = export_watch_check_markdown(result)
+
+        self.assertIn("# PanelScout Watch Check Report", rendered)
+        self.assertIn("- Checked: 1", rendered)
+        self.assertIn("### Sample Comic", rendered)
+        self.assertIn("[Chapter 4](https://example.test/chapter-4)", rendered)
+        self.assertIn("Latest chapter: Chapter 3 -> Chapter 4", rendered)
 
     def test_cli_export_reads_configured_temp_database(self):
         with TemporaryDirectory() as directory:

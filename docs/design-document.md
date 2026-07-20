@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.14
+Version: 0.15
 
 Date: 2026-07-20
 
@@ -331,8 +331,8 @@ Unit 1 accepted scope:
 ### MVP 3: Watchlist
 
 - Save comics to watchlist. Status: baseline completed in Unit 11.
-- Scheduled update checks. Status: pending.
-- Markdown update report. Status: pending.
+- Scheduled update checks. Status: local suggested schedule baseline completed in Unit 14.
+- Markdown update report. Status: completed in Unit 13.
 
 ### MVP 4: Local UI
 
@@ -790,6 +790,89 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
 - No scheduler, update report generation, live network, auth, browser, downloader, session, cookie, or image/content crawling behavior was introduced.
+
+### Unit 12: Watchlist Update Check Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/crawler/__init__.py`
+- `src/panelscout/crawler/engine.py`
+- `src/panelscout/storage/repositories.py`
+- `tests/test_cli.py`
+- `tests/test_detail_sync_workflow.py`
+- `tests/test_storage.py`
+
+Validation summary:
+
+- `check_watchlist_public_updates` reads watched comics from the configured SQLite database.
+- Watchlist checks reuse public/anonymous `sync_public_detail` and do not authenticate, run browsers, or download content.
+- CLI supports `panelscout watch check` and `panelscout watch check --limit N`.
+- Watch checks persist refreshed detail metadata, visible chapters, new chapter counts, and metadata changes.
+- Empty watchlists return a clear success result without fetching.
+- One failed watched comic does not abort the rest of the batch.
+- Watchlist `last_checked_at` is updated after success or per-item failure.
+- Tests use fake fetchers and local fixtures only.
+
+### Unit 13: Markdown Watch Check Report
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/exporters/__init__.py`
+- `src/panelscout/exporters/markdown_exporter.py`
+- `tests/test_cli.py`
+- `tests/test_exporters.py`
+
+Validation summary:
+
+- `export_watch_check_markdown` renders a local Markdown report for one watch check result.
+- Reports include summary counts, per-comic status, new chapter links, metadata changes, and failures.
+- CLI supports `panelscout watch check --report PATH` to write a local Markdown report.
+- Report generation does not create network, scheduler, auth, browser, downloader, session, cookie, or image/content crawling behavior.
+
+### Unit 14: Local Watch Check Schedule Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/storage/__init__.py`
+- `src/panelscout/storage/database.py`
+- `src/panelscout/storage/models.py`
+- `src/panelscout/storage/repositories.py`
+- `tests/test_cli.py`
+- `tests/test_storage.py`
+
+Validation summary:
+
+- SQLite schema now includes `watch_check_schedules`.
+- `WatchCheckSchedule` models local suggested watch check timing.
+- Repository helpers can set, show, clear, list due schedules, and mark a manual run.
+- CLI supports `panelscout watch schedule set/show/due/clear`.
+- Schedule support is local state only; it does not start a background daemon, thread, subprocess, APScheduler runtime, or automatic network work.
+- Full `unittest discover` passed with 71 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Agent2 full MVP3 validation passed.
+- No live network, auth, browser, downloader, session, cookie, background daemon, or image/content crawling behavior was introduced.
 
 ## 16. Open Questions
 

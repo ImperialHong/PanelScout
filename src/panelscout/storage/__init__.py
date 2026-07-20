@@ -7,6 +7,7 @@ from panelscout.storage.models import (
     Comic,
     CrawlJob,
     CrawlLog,
+    WatchCheckSchedule,
     WatchlistEntry,
 )
 from panelscout.storage.repositories import ComicRepository, StorageError
@@ -19,6 +20,7 @@ __all__ = [
     "CrawlJob",
     "CrawlLog",
     "StorageError",
+    "WatchCheckSchedule",
     "WatchlistEntry",
     "connect_database",
     "initialize_schema",

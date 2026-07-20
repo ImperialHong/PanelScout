@@ -19,7 +19,7 @@ from panelscout.adapters.zaimanhua import (
     normalize_public_url,
 )
 from panelscout.parsers.zaimanhua import ParsedChapter, parse_detail_page, parse_search_results
-from panelscout.storage.models import Chapter, Comic
+from panelscout.storage.models import Chapter, Comic, WatchlistEntry
 from panelscout.storage.repositories import ComicRepository
 
 
@@ -57,6 +57,27 @@ class MetadataChange:
     current: str | None
 
 
+@dataclass(frozen=True, kw_only=True)
+class WatchlistCheckItemResult:
+    """Result for one watched comic update check."""
+
+    entry: WatchlistEntry
+    sync_result: PublicDetailSyncResult | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class WatchlistCheckResult:
+    """Result from checking a local watchlist for public metadata updates."""
+
+    items: tuple[WatchlistCheckItemResult, ...]
+    checked_count: int
+    success_count: int
+    failure_count: int
+    new_chapter_count: int
+    metadata_change_count: int
+
+
 def search_public_comics(
     query: str,
     fetcher: Any,
@@ -92,6 +113,62 @@ def search_public_comics(
         url=url,
         comics=stored_comics,
         persisted_count=len(stored_comics),
+    )
+
+
+def check_watchlist_public_updates(
+    fetcher: Any,
+    repository: ComicRepository,
+    *,
+    limit: int = 100,
+) -> WatchlistCheckResult:
+    """Run public detail sync for watched comics in the local catalog.
+
+    This workflow is intentionally local-list driven: it reads existing
+    watchlist entries, checks public detail metadata, and never authenticates,
+    runs browsers, schedules background work, or downloads image/content files.
+    """
+
+    entries = tuple(repository.list_watchlist_entries(limit=limit))
+    items: list[WatchlistCheckItemResult] = []
+    success_count = 0
+    failure_count = 0
+    new_chapter_count = 0
+    metadata_change_count = 0
+
+    for entry in entries:
+        comic = entry.comic
+        try:
+            sync_result = sync_public_detail(comic.source_comic_id, fetcher, repository)
+            repository.mark_watchlist_entry_checked(comic.source, comic.source_comic_id)
+        except Exception as error:  # noqa: BLE001 - one failed watch item should not abort the batch.
+            repository.mark_watchlist_entry_checked(comic.source, comic.source_comic_id)
+            failure_count += 1
+            items.append(
+                WatchlistCheckItemResult(
+                    entry=entry,
+                    error=str(error),
+                )
+            )
+            continue
+
+        success_count += 1
+        new_chapter_count += sync_result.new_chapter_count
+        metadata_change_count += len(sync_result.metadata_changes)
+        items.append(
+            WatchlistCheckItemResult(
+                entry=entry,
+                sync_result=sync_result,
+            )
+        )
+
+    return WatchlistCheckResult(
+        items=tuple(items),
+        checked_count=len(items),
+        success_count=success_count,
+        failure_count=failure_count,
+        new_chapter_count=new_chapter_count,
+        metadata_change_count=metadata_change_count,
     )
 
 
