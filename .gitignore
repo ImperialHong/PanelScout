@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+
+# Local PanelScout data, sessions, and cookies
+.panelscout/
+sessions/
+*.cookie
+*.cookies
+*.cookies.json
+*.storage.json
+storage-state*.json
+
+# Playwright artifacts
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+playwright/.cache/
+trace.zip
+*.har
+
+# macOS
+.DS_Store

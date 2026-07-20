@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.2
+Version: 0.3
 
 Date: 2026-07-20
 
@@ -300,12 +300,21 @@ Pause on expiration, CAPTCHA, 403, 429, or policy uncertainty
 
 ### MVP 1: Metadata CLI
 
-- Project skeleton.
-- Config file.
-- SQLite database.
-- `search` command.
-- List/search page parsing.
-- Basic export.
+- Project skeleton. Status: completed in Unit 1.
+- Config file. Status: baseline completed in Unit 1.
+- SQLite database. Status: pending.
+- `search` command. Status: placeholder completed in Unit 1; real metadata search pending.
+- List/search page parsing. Status: pending.
+- Basic export. Status: pending.
+
+Unit 1 accepted scope:
+
+- `pyproject.toml` with `src/` layout and `panelscout` CLI entry.
+- `src/panelscout` package with CLI and config baseline.
+- Placeholder subpackages for future modules.
+- Safe `.gitignore` for Python caches, virtualenvs, local databases, cookies, session storage, and Playwright artifacts.
+- Lightweight `unittest` coverage for CLI and config behavior.
+- No crawling, login, network requests, parsing, storage writes, or downloads.
 
 ### MVP 2: Detail Sync
 
@@ -441,7 +450,36 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 5. Add local UI after CLI behavior is stable.
 6. Reassess downloader scope only after legal and source-policy review.
 
-## 15. Open Questions
+## 15. Implementation Progress
+
+### Unit 1: Project Skeleton and CLI Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `.gitignore`
+- `pyproject.toml`
+- `src/panelscout/__init__.py`
+- `src/panelscout/cli.py`
+- `src/panelscout/config.py`
+- placeholder package directories under `src/panelscout/`
+- `tests/test_cli.py`
+- `tests/test_config.py`
+
+Validation summary:
+
+- `compileall` passed for `src` and `tests`.
+- `unittest discover` passed with 8 tests.
+- CLI help, version, config display, and placeholder search commands passed.
+- No network, crawler, login, or downloader behavior was introduced.
+- Python 3.12+ is required by the project. The host default `python3` may be older, so local checks should use a Python 3.12+ interpreter.
+
+## 16. Open Questions
 
 - Should the first interface be CLI-only or include a local web UI from day one?
 - Which exact filters are required for the first search workflow?
