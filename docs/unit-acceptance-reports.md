@@ -547,3 +547,110 @@ Validation summary:
 - Full `unittest discover` passed with 85 tests.
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
+
+### Unit 19: Public Chapter Image Discovery Fixtures and Parser
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/downloader/__init__.py`
+- `src/panelscout/downloader/discovery.py`
+- `tests/fixtures/zaimanhua/chapter_15599_1001.html`
+- `tests/test_chapter_image_discovery.py`
+
+Validation summary:
+
+- Added fixture-backed public chapter image discovery for saved/fetched chapter HTML.
+- Parser extracts image URLs from `img` and `source` attributes, `srcset`-style fields, and supported JSON/script URL markers.
+- Relative and protocol-relative image URLs normalize against the source chapter URL.
+- Non-image resources such as SVG markup are ignored, image extensions are normalized, and duplicate URLs are deduped.
+- The parser is pure string parsing: it does not fetch pages, evaluate JavaScript, authenticate, use cookies, run a browser, or download image bytes.
+- Focused discovery tests passed with 2 tests.
+
+### Unit 20: Opt-In CLI Download Dry-Run
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/downloader/workflow.py`
+- `tests/test_cli.py`
+- `tests/test_download_workflow.py`
+
+Validation summary:
+
+- Added `panelscout download plan SOURCE_COMIC_ID --chapter REF --output-root PATH --permission-note NOTE`.
+- The command loads an existing saved comic and local chapter from the configured SQLite database.
+- Chapter references may match chapter title, URL, local id, source chapter id, or chapter order.
+- The command fetches chapter HTML through the existing robots-aware HTML fetcher path, discovers public image candidates, and prints planned local file paths.
+- Dry-run planning does not create the download root, write image files, fetch image bytes, authenticate, use cookies, run a browser, or start background work.
+- Missing default local databases fail cleanly without creating user-home config/data/cache directories.
+
+### Unit 21: Opt-In CLI Image Save Baseline
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/downloader/__init__.py`
+- `src/panelscout/downloader/fetcher.py`
+- `src/panelscout/downloader/workflow.py`
+- `tests/test_cli.py`
+- `tests/test_download_workflow.py`
+
+Validation summary:
+
+- Added `panelscout download run SOURCE_COMIC_ID --chapter REF --output-root PATH --permission-note NOTE`.
+- The save workflow reuses the accepted download plan and writes to `download_root/漫画名/章节名/001.ext`.
+- Images are fetched only after explicit command invocation and a nonblank permission note.
+- Image responses are saved through `.part` temporary files and atomically renamed after complete bytes are available.
+- Existing completed files are skipped, existing partial files are planned as resumable/download work, and independent page failures do not create complete target files.
+- The image fetcher sends a clear User-Agent and generic image Accept header only. It does not add credentials, cookies, sessions, referer spoofing, browser automation, anti-hotlinking bypass, or queue/background behavior.
+- Blocked or non-image responses fail with clear local errors.
+
+### Unit 22: End-to-End Minimum Line Validation
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/downloader/discovery.py`
+- `src/panelscout/downloader/fetcher.py`
+- `src/panelscout/downloader/planner.py`
+- `src/panelscout/downloader/workflow.py`
+- `tests/fixtures/zaimanhua/chapter_15599_1001.html`
+- `tests/test_chapter_image_discovery.py`
+- `tests/test_download_workflow.py`
+- `tests/test_cli.py`
+
+Validation summary:
+
+- Fixture-backed tests validate the minimum business line: public search -> save comic -> public detail/chapter sync -> select chapter -> plan/save selected chapter images.
+- The expected local output layout is created as `downloads/伪恋同盟/第001话 背叛之后/001.jpg`, `002.png`, `003.png`, and `004.webp`.
+- CLI tests cover download planning without file writes, explicit download saving, and missing database failure without default directory creation.
+- Focused Unit 19-22 tests passed with 35 tests.
+- Full `unittest discover` passed with 94 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Boundary scan found only expected negative/fixture references for session paths, authorization wording, and no-login/no-bypass comments; no executable login/auth/session/cookie/browser/background queue behavior was added.
+- No login/auth/session/cookie workflow, browser automation, paid/VIP bypass, referer spoofing, source restriction bypass, or background queue was introduced.

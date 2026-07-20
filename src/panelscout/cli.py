@@ -22,6 +22,11 @@ from panelscout.crawler import (
     search_public_comics,
     sync_public_detail,
 )
+from panelscout.downloader import (
+    ImageFetcher,
+    plan_public_chapter_download,
+    save_public_chapter_download,
+)
 from panelscout.exporters import (
     export_comics_csv,
     export_comics_json,
@@ -214,6 +219,25 @@ def build_parser() -> argparse.ArgumentParser:
     ui_build.set_defaults(handler=_handle_ui_build)
     ui_parser.set_defaults(handler=_handle_ui_help)
 
+    download_parser = subparsers.add_parser(
+        "download",
+        help="Plan or run explicit local chapter downloads.",
+    )
+    download_subparsers = download_parser.add_subparsers(dest="download_command")
+    download_plan = download_subparsers.add_parser(
+        "plan",
+        help="Preview local chapter download paths without fetching images.",
+    )
+    _add_download_common_arguments(download_plan)
+    download_plan.set_defaults(handler=_handle_download_plan)
+    download_run = download_subparsers.add_parser(
+        "run",
+        help="Save explicitly selected public chapter images locally.",
+    )
+    _add_download_common_arguments(download_run)
+    download_run.set_defaults(handler=_handle_download_run)
+    download_parser.set_defaults(handler=_handle_download_help)
+
     export_parser = subparsers.add_parser("export", help="Export collected metadata.")
     export_parser.add_argument(
         "--format",
@@ -230,11 +254,37 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _add_download_common_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("source_comic_id", nargs="?", help="Saved local source comic id.")
+    parser.add_argument(
+        "--chapter",
+        required=True,
+        help="Local chapter title, source chapter id, order, local id, or URL.",
+    )
+    parser.add_argument(
+        "--output-root",
+        required=True,
+        help="Download root directory.",
+    )
+    parser.add_argument(
+        "--permission-note",
+        required=True,
+        help="Required note confirming user-authorized personal local archiving.",
+    )
+    parser.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
     search_fetcher_factory=None,
     sync_fetcher_factory=None,
+    download_fetcher_factory=None,
+    image_fetcher_factory=None,
 ) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -259,6 +309,11 @@ def main(
             and sync_fetcher_factory is not None
         ):
             args.sync_fetcher_factory = sync_fetcher_factory
+        if args.command == "download":
+            if download_fetcher_factory is not None:
+                args.download_fetcher_factory = download_fetcher_factory
+            if image_fetcher_factory is not None:
+                args.image_fetcher_factory = image_fetcher_factory
         handler = getattr(args, "handler", None)
         if handler is None:
             parser.print_help()
@@ -384,6 +439,14 @@ def _create_sync_fetcher(config):
         user_agent=config.user_agent,
     )
     return HtmlFetcher(config=config, robots_policy=robots_policy)
+
+
+def _create_download_fetcher(config):
+    return _create_sync_fetcher(config)
+
+
+def _create_image_fetcher(config):
+    return ImageFetcher(config=config)
 
 
 def _format_search_result(result, *, saved: bool) -> str:
@@ -665,6 +728,166 @@ def _handle_ui_build(args: argparse.Namespace, config) -> int:
     print(f"UI 数据：{state.data_status}")
     print("请在本地打开 HTML 文件。未启动服务、网络、登录或下载任务。")
     return 0
+
+
+def _handle_download_help(args: argparse.Namespace, config) -> int:
+    print("panelscout download plan SOURCE_COMIC_ID --chapter REF --output-root PATH --permission-note NOTE")
+    print("panelscout download run SOURCE_COMIC_ID --chapter REF --output-root PATH --permission-note NOTE")
+    print("Downloads are explicit and local-only; no login, bypass, or background queue is started.")
+    return 0
+
+
+def _handle_download_plan(args: argparse.Namespace, config) -> int:
+    loaded = _load_download_selection(args, config)
+    if loaded is None:
+        return 1
+    source, comic, chapter = loaded
+
+    factory = getattr(args, "download_fetcher_factory", None) or _create_download_fetcher
+    try:
+        result = plan_public_chapter_download(
+            comic=comic,
+            chapter=chapter,
+            chapter_fetcher=factory(config),
+            download_root=args.output_root,
+            permission_note=args.permission_note,
+        )
+    except (RobotsLoadError, RobotsDisallowedError, FetchError, ValueError) as error:
+        print(f"panelscout: download plan failed: {error}", file=sys.stderr)
+        return 1
+
+    print(_format_download_plan_result(result, source=source))
+    return 0
+
+
+def _handle_download_run(args: argparse.Namespace, config) -> int:
+    loaded = _load_download_selection(args, config)
+    if loaded is None:
+        return 1
+    source, comic, chapter = loaded
+
+    download_factory = getattr(args, "download_fetcher_factory", None) or _create_download_fetcher
+    image_factory = getattr(args, "image_fetcher_factory", None) or _create_image_fetcher
+    try:
+        result = save_public_chapter_download(
+            comic=comic,
+            chapter=chapter,
+            chapter_fetcher=download_factory(config),
+            image_fetcher=image_factory(config),
+            download_root=args.output_root,
+            permission_note=args.permission_note,
+        )
+    except (RobotsLoadError, RobotsDisallowedError, FetchError, ValueError) as error:
+        print(f"panelscout: download run failed: {error}", file=sys.stderr)
+        return 1
+
+    print(_format_download_save_result(result, source=source))
+    return 1 if result.failed_count else 0
+
+
+def _load_download_selection(args: argparse.Namespace, config):
+    source_comic_id = (args.source_comic_id or "").strip()
+    if not source_comic_id:
+        print("panelscout: download source comic id cannot be blank", file=sys.stderr)
+        return None
+
+    chapter_reference = (args.chapter or "").strip()
+    if not chapter_reference:
+        print("panelscout: download chapter reference cannot be blank", file=sys.stderr)
+        return None
+
+    if not (args.permission_note or "").strip():
+        print("panelscout: download permission note cannot be blank", file=sys.stderr)
+        return None
+
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported download source '{source}'", file=sys.stderr)
+        return None
+
+    database_path = Path(config.database_path).expanduser()
+    if str(config.database_path) != ":memory:" and not database_path.exists():
+        print(
+            "panelscout: local database not found; run search --save and sync --save first",
+            file=sys.stderr,
+        )
+        return None
+
+    with connect_database(config.database_path) as connection:
+        repository = ComicRepository(connection)
+        comic = repository.get_comic_by_source(source, source_comic_id)
+        if comic is None or comic.id is None:
+            print(f"panelscout: local comic not found: {source_comic_id}", file=sys.stderr)
+            return None
+        chapter = _select_chapter(repository.list_chapters(comic.id), chapter_reference)
+        if chapter is None:
+            print(f"panelscout: local chapter not found: {chapter_reference}", file=sys.stderr)
+            return None
+        return source, comic, chapter
+
+
+def _select_chapter(chapters, reference: str):
+    normalized = reference.strip()
+    for chapter in chapters:
+        candidates = {
+            chapter.title,
+            chapter.chapter_url,
+            str(chapter.id) if chapter.id is not None else "",
+            str(chapter.chapter_order) if chapter.chapter_order is not None else "",
+            chapter.source_chapter_id or "",
+        }
+        if normalized in candidates:
+            return chapter
+    return None
+
+
+def _format_download_plan_result(result, *, source: str) -> str:
+    plan = result.plan
+    lines = [
+        f"Download plan: {result.comic.title}",
+        f"Source: {source}",
+        f"Comic id: {result.comic.source_comic_id}",
+        f"Chapter: {result.chapter.title}",
+        f"Chapter URL: {result.chapter.chapter_url}",
+        f"Permission note: {plan.permission_note}",
+        f"Download root: {plan.download_root}",
+        f"Chapter directory: {plan.chapter_directory}",
+        f"Images discovered: {len(result.images)}",
+        "No files were downloaded or written.",
+        "",
+        "Planned files:",
+    ]
+    for item in plan.items:
+        lines.append(
+            f"{item.page_number:03d}. {item.action}: {item.relative_path}"
+        )
+        lines.append(f"     source: {item.source_url}")
+    return "\n".join(lines)
+
+
+def _format_download_save_result(result, *, source: str) -> str:
+    lines = [
+        f"Download complete: {result.comic.title}",
+        f"Source: {source}",
+        f"Comic id: {result.comic.source_comic_id}",
+        f"Chapter: {result.chapter.title}",
+        f"Chapter directory: {result.plan.chapter_directory}",
+        f"Saved: {result.saved_count}",
+        f"Skipped: {result.skipped_count}",
+        f"Failed: {result.failed_count}",
+        "",
+        "Files:",
+    ]
+    for item in result.items:
+        lines.append(
+            f"{item.plan_item.page_number:03d}. {item.status}: "
+            f"{item.plan_item.relative_path}"
+        )
+        if item.bytes_written:
+            lines.append(f"     bytes: {item.bytes_written}")
+        if item.error:
+            lines.append(f"     error: {item.error}")
+    return "\n".join(lines)
 
 
 def _format_watchlist_entries(entries) -> str:

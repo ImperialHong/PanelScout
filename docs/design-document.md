@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.23
+Version: 0.24
 
 Date: 2026-07-20
 
@@ -85,6 +85,8 @@ Initial commands:
 - `search`: Search comics by keyword or filters.
 - `sync`: Crawl and refresh metadata for saved comics.
 - `watch`: Check selected comics for chapter updates.
+- `download plan`: Preview local chapter image paths for an explicitly selected saved chapter.
+- `download run`: Save explicitly selected public chapter images locally after user permission confirmation.
 - `export`: Export metadata and update reports.
 
 The first version can start with a CLI. A local web interface can be added after the crawler and storage layer are stable.
@@ -162,7 +164,15 @@ Supported first formats:
 
 ### 6.9 Downloader
 
-Downloader is a planned opt-in module for personal local archiving of chapters the user is authorized to view.
+Downloader is an opt-in module for personal local archiving of chapters the user is authorized to view.
+
+Current CLI baseline:
+
+- Unit 18 added pure local file planning for `download_root/comic_title/chapter_title/001.ext`.
+- Unit 19 added public chapter image discovery from saved/fetched chapter HTML.
+- Unit 20 added `panelscout download plan` to preview file paths without fetching image bytes.
+- Unit 21 added `panelscout download run` to explicitly save selected public chapter images.
+- Unit 22 validated the minimum line from search/save through sync/chapter selection to local image save.
 
 Rules:
 
@@ -176,6 +186,7 @@ Rules:
 - Must write temporary files first and rename only after a complete image response is saved.
 - Must preserve the original image extension when known.
 - Must not include credentials, cookies, session state, or account identifiers in output folders.
+- Current baseline does not use credentials, cookies, sessions, referer spoofing, browser automation, or background queues.
 
 Output layout:
 
@@ -383,14 +394,14 @@ Unit 1 accepted scope:
 
 ### MVP 4: Local UI
 
-MVP 4 is currently de-prioritized behind the minimum search-to-download business line. Existing UI work remains accepted, but new UI polish should pause until downloader CLI behavior is usable.
+MVP 4 was temporarily de-prioritized behind the minimum search-to-download business line. The CLI minimum line is now accepted through Unit 22, so the next MVP 4 work can resume by wiring the Chinese local UI to the accepted CLI download behavior.
 
 - 搜索页。Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 本地库页。Status: static shell baseline completed in Unit 15; local SQLite data binding baseline completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 漫画详情页。Status: static shell baseline completed in Unit 15; selected comic metadata and local chapter list binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 追更页。Status: static shell baseline completed in Unit 15; local watchlist entries, notes, and checked-status binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 更新历史页。Status: static shell baseline completed in Unit 15; local summary binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; persisted history stream pending.
-- 章节选择与本地下载页。Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; download execution pending.
+- 章节选择与本地下载页。Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; CLI download plan/run baseline completed in Units 20-21; UI execution wiring pending.
 - 下载队列/状态页。Status: static shell baseline completed in Unit 15; Chinese UI copy baseline completed in Unit 17; queue engine pending.
 - 下载设置页。Status: static shell baseline completed in Unit 15; database path binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; settings persistence pending.
 
@@ -421,6 +432,7 @@ MVP 4 current implementation note:
 - Unit 15 ships a static local HTML shell via `panelscout ui build --output PATH`.
 - Unit 16 reads the configured local SQLite database when it exists and renders saved catalog, chapter, watchlist, watch schedule, and local summary data into that static shell.
 - Unit 17 makes the static local UI's user-visible copy Chinese by default, including navigation, headings, tables, buttons, empty states, disabled download text, core accessibility labels, and UI build output.
+- Units 18-22 complete the CLI-level minimum search-to-download line, but the static UI still does not execute downloads directly.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The current UI shell is a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
 - Download action buttons are visible for planning but disabled, and the folder preview follows `download_root/漫画名/章节名/001.jpg`.
@@ -483,9 +495,10 @@ panel-scout/
         csv_exporter.py
         markdown_exporter.py
       downloader/
+        discovery.py
+        fetcher.py
         planner.py
-        image_fetcher.py
-        filenames.py
+        workflow.py
         queue.py
   tests/
     fixtures/
@@ -542,44 +555,42 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 ### Recommended First Implementation Order
 
-1. Finish the already-started anonymous metadata line: search, save, detail sync, chapter metadata, and CLI persistence.
-2. Build downloader planner and filename/layout rules for `download_root/comic_title/chapter_title/001.ext`.
-3. Add chapter image discovery from public chapter pages using local fixtures first, with no bypass behavior.
-4. Add opt-in CLI download execution for explicitly selected local chapters, with permission notes, conservative delays, temporary files, resume/skip behavior, and failure logging.
-5. Validate the full minimum line end to end: search -> save -> sync chapters -> select chapter -> download to local folders.
-6. Only after the minimum line works, resume UI polish by wiring the Chinese UI to the CLI/download status.
-7. Keep Authenticated Session Mode in MVP 5 until the anonymous/public minimum line is complete and safe.
+1. Finish the already-started anonymous metadata line: search, save, detail sync, chapter metadata, and CLI persistence. Status: completed.
+2. Build downloader planner and filename/layout rules for `download_root/comic_title/chapter_title/001.ext`. Status: completed in Unit 18.
+3. Add chapter image discovery from public chapter pages using local fixtures first, with no bypass behavior. Status: completed in Unit 19.
+4. Add opt-in CLI download execution for explicitly selected local chapters, with permission notes, conservative delays, temporary files, resume/skip behavior, and failure logging. Status: completed in Units 20-21.
+5. Validate the full minimum line end to end: search -> save -> sync chapters -> select chapter -> download to local folders. Status: completed in Unit 22.
+6. Resume MVP 4 by wiring the Chinese UI to the accepted CLI/download status.
+7. Keep Authenticated Session Mode in MVP 5 until the anonymous/public UI-facing download line is stable and safe.
 8. Reassess downloader scope continuously against legal and source-policy risk.
 
 ## 15. Implementation Progress
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 18.
+Current accepted range: Unit 1 through Unit 22.
 
-Latest accepted Unit: Unit 18, Downloader Planner Baseline.
+Latest accepted Unit: Unit 22, End-to-End Minimum Line Validation.
 
 High-level milestone status:
 
 - MVP 1: Project skeleton, SQLite storage, exporters, anonymous parser fixtures, robots policy, fetcher baseline, public search workflow, and safe CLI search integration are accepted.
 - MVP 2: Public detail sync, chapter metadata upsert, safe CLI sync integration, richer sync result, and report output are accepted. Authenticated Session Mode remains deferred to MVP 5.
 - MVP 3: Local watchlist, public watch update checks, Markdown watch reports, and local suggested watch schedule baseline are accepted.
-- Minimum search-to-download line: Search, save, public detail/chapter sync, and downloader planner baseline are accepted. Chapter image discovery and opt-in image save remain pending.
-- MVP 4: Static local UI shell, local SQLite data binding, and Chinese UI copy baseline are accepted. New UI polish is paused until the minimum download line is usable.
+- Minimum search-to-download line: Search, save, public detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level.
+- MVP 4: Static local UI shell, local SQLite data binding, and Chinese UI copy baseline are accepted. Next work should expose the accepted minimum line through the local UI without adding auth or background queues.
 - MVP 5: Authenticated Session Mode is not started.
 
 ## 16. Next Unit Plan
 
-Current priority: complete the minimum search-to-download business line.
+Current priority: resume MVP 4 UI wiring on top of the accepted minimum search-to-download business line.
 
 Planned next Units:
 
-- Unit 18: Downloader planner baseline. Status: accepted; no image fetching introduced.
-- Unit 19: Public chapter image discovery fixtures and parser. Parse image URLs or image descriptors from saved public chapter HTML fixtures only. No live chapter image requests yet.
-- Unit 20: Opt-in CLI download dry-run. Given a saved comic/chapter, print the planned local files and safety notes without fetching images.
-- Unit 21: Opt-in CLI image save baseline. Fetch explicitly selected public chapter images with conservative delays, temporary files, extension preservation, skip/resume behavior, and clear errors. No auth, bypass, or background queue.
-- Unit 22: End-to-end minimum line validation. Fixture-backed and fake-fetcher tests for search -> save -> sync -> select chapter -> download plan/save.
-- Unit 23+: Resume UI wiring and experience polish only after Unit 22 is accepted.
+- Unit 23: UI download command bridge. Render selected chapter, output root, permission note, and copyable CLI command previews in Chinese without executing downloads from the static page.
+- Unit 24: UI download status import. Read locally generated download folders and show saved/missing/failed counts for selected chapters.
+- Unit 25: UI-to-local-runner decision. Decide whether MVP 4 stays static-command-driven or adds a local-only service runner; any runner must remain explicit, local, and disabled until launched by the user.
+- Unit 26+: UX polish for search/detail/download flow after the UI has a safe path to the accepted CLI behavior.
 
 ## 17. Open Questions
 

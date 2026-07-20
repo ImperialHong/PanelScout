@@ -9,6 +9,7 @@ from unittest.mock import patch
 from panelscout import __version__
 from panelscout.cli import main
 from panelscout.crawler import FetchedHtml, RobotsLoadError
+from panelscout.downloader import FetchedImage
 from panelscout.storage import Chapter, Comic, ComicRepository, connect_database
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "zaimanhua"
@@ -1012,6 +1013,228 @@ class CliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(stdout, "")
         self.assertIn("ui build 输出路径不能为空", stderr)
+
+    def test_download_plan_prints_paths_without_writing_files(self):
+        chapter_fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(
+            encoding="utf-8"
+        )
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            output_root = root / "downloads"
+            _write_test_config(config_path, root, database_path)
+            _seed_download_chapter(database_path)
+
+            code, stdout, stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "download",
+                    "plan",
+                    "15599",
+                    "--chapter",
+                    "第001话 背叛之后",
+                    "--output-root",
+                    str(output_root),
+                    "--permission-note",
+                    "用户确认该公开章节可用于个人本地归档。",
+                ],
+                download_fetcher_factory=FakeDownloadFetcherFactory(chapter_fixture),
+            )
+
+            self.assertFalse(output_root.exists())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("Download plan: 伪恋同盟", stdout)
+        self.assertIn("Images discovered: 4", stdout)
+        self.assertIn("No files were downloaded or written.", stdout)
+        self.assertIn("001. download: 伪恋同盟/第001话 背叛之后/001.jpg", stdout)
+
+    def test_download_run_saves_explicit_chapter_images(self):
+        chapter_fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(
+            encoding="utf-8"
+        )
+        image_factory = FakeImageFetcherFactory()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            output_root = root / "downloads"
+            _write_test_config(config_path, root, database_path)
+            _seed_download_chapter(database_path)
+
+            code, stdout, stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "download",
+                    "run",
+                    "15599",
+                    "--chapter",
+                    "1",
+                    "--output-root",
+                    str(output_root),
+                    "--permission-note",
+                    "用户确认该公开章节可用于个人本地归档。",
+                ],
+                download_fetcher_factory=FakeDownloadFetcherFactory(chapter_fixture),
+                image_fetcher_factory=image_factory,
+            )
+            saved_files = sorted(
+                path.name
+                for path in (output_root / "伪恋同盟" / "第001话 背叛之后").iterdir()
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("Download complete: 伪恋同盟", stdout)
+        self.assertIn("Saved: 4", stdout)
+        self.assertIn("Skipped: 0", stdout)
+        self.assertEqual(saved_files, ["001.jpg", "002.png", "003.png", "004.webp"])
+        self.assertEqual(len(image_factory.fetcher.urls), 4)
+
+    def test_download_missing_database_fails_without_creating_default_dirs(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_config_home = root / "config-home"
+            fake_data_home = root / "data-home"
+            fake_cache_home = root / "cache-home"
+            env = {
+                "HOME": str(fake_home),
+                "XDG_CONFIG_HOME": str(fake_config_home),
+                "XDG_DATA_HOME": str(fake_data_home),
+                "XDG_CACHE_HOME": str(fake_cache_home),
+            }
+
+            with patch.dict(os.environ, env, clear=False):
+                os.environ.pop("PANELSCOUT_CONFIG", None)
+                code, stdout, stderr = run_cli(
+                    [
+                        "download",
+                        "plan",
+                        "15599",
+                        "--chapter",
+                        "1",
+                        "--output-root",
+                        str(root / "downloads"),
+                        "--permission-note",
+                        "用户确认该公开章节可用于个人本地归档。",
+                    ],
+                    download_fetcher_factory=RaisingDownloadFetcherFactory(
+                        AssertionError("factory should not be called")
+                    ),
+                )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("local database not found", stderr)
+        self.assertFalse(fake_home.exists())
+        self.assertFalse(fake_config_home.exists())
+        self.assertFalse(fake_data_home.exists())
+        self.assertFalse(fake_cache_home.exists())
+
+
+def _write_test_config(config_path: Path, root: Path, database_path: Path) -> None:
+    config_path.write_text(
+        "\n".join(
+            [
+                "[paths]",
+                f'database_path = "{database_path}"',
+                f'data_dir = "{root / "data"}"',
+                f'cache_dir = "{root / "cache"}"',
+                f'session_dir = "{root / "sessions"}"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def _seed_download_chapter(database_path: Path) -> None:
+    with connect_database(database_path) as connection:
+        repository = ComicRepository(connection)
+        comic = repository.upsert_comic(
+            Comic(
+                source="zaimanhua",
+                source_comic_id="15599",
+                title="伪恋同盟",
+                author="榊葵/绫乃",
+                latest_chapter_title="第001话 背叛之后",
+                detail_url="https://manhua.zaimanhua.com/details/15599",
+            )
+        )
+        assert comic.id is not None
+        repository.upsert_chapter(
+            Chapter(
+                comic_id=comic.id,
+                title="第001话 背叛之后",
+                chapter_order=1,
+                chapter_url="https://manhua.zaimanhua.com/view/15599/1001.html",
+                source_chapter_id="1001",
+            )
+        )
+
+
+class FakeDownloadFetcherFactory:
+    def __init__(self, html: str) -> None:
+        self.fetcher = FakeDownloadFetcher(html)
+        self.configs = []
+
+    def __call__(self, config):
+        self.configs.append(config)
+        return self.fetcher
+
+
+class FakeDownloadFetcher:
+    def __init__(self, html: str) -> None:
+        self.html = html
+        self.urls: list[str] = []
+
+    def fetch_html(self, url: str) -> FetchedHtml:
+        self.urls.append(url)
+        return FetchedHtml(
+            url=url,
+            status_code=200,
+            content_type="text/html; charset=utf-8",
+            text=self.html,
+        )
+
+
+class RaisingDownloadFetcherFactory:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.calls = 0
+
+    def __call__(self, config):
+        self.calls += 1
+        raise self.error
+
+
+class FakeImageFetcherFactory:
+    def __init__(self) -> None:
+        self.fetcher = FakeCliImageFetcher()
+        self.configs = []
+
+    def __call__(self, config):
+        self.configs.append(config)
+        return self.fetcher
+
+
+class FakeCliImageFetcher:
+    def __init__(self) -> None:
+        self.urls: list[str] = []
+
+    def fetch_image(self, url: str) -> FetchedImage:
+        self.urls.append(url)
+        extension = Path(url.split("?", 1)[0]).suffix.lstrip(".") or "jpg"
+        return FetchedImage(
+            url=url,
+            status_code=200,
+            content_type=f"image/{extension}",
+            content=f"cli image bytes for {url}".encode("utf-8"),
+        )
 
 
 class FakeSearchFetcherFactory:
