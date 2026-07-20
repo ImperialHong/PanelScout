@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.8
+Version: 0.9
 
 Date: 2026-07-20
 
@@ -303,7 +303,7 @@ Pause on expiration, CAPTCHA, 403, 429, or policy uncertainty
 - Project skeleton. Status: completed in Unit 1.
 - Config file. Status: baseline completed in Unit 1.
 - SQLite database. Status: baseline completed in Unit 2.
-- `search` command. Status: placeholder completed in Unit 1; public search workflow service completed in Unit 6; live CLI wiring pending.
+- `search` command. Status: baseline completed in Unit 7; default prints results only, `--save` persists to SQLite.
 - List/search page parsing. Status: baseline completed in Unit 4.
 - Basic export. Status: baseline completed in Unit 3.
 
@@ -626,6 +626,38 @@ Validation summary:
 - Full `unittest discover` passed with 37 tests.
 - `compileall` passed for `src` and `tests`.
 - No live network, login, browser, downloader, or CLI live search behavior was introduced.
+
+### Unit 7: Safe CLI Search Integration
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/adapters/zaimanhua.py`
+- `src/panelscout/crawler/__init__.py`
+- `src/panelscout/crawler/robots.py`
+- `tests/test_cli.py`
+- `tests/test_robots.py`
+
+Validation summary:
+
+- `panelscout search QUERY` is wired to the public search workflow.
+- Search uses a robots-aware `HtmlFetcher`.
+- Default search prints parsed results and does not persist data.
+- Default search does not create user-home database directories.
+- `panelscout search QUERY --save` persists results only to the configured SQLite database.
+- Blank search queries are rejected before fetcher creation.
+- Robots loading failure fails closed with a clear non-zero CLI result.
+- Tests use injected fake fetchers and local fixtures only.
+- Unit 7 focused CLI and robots tests passed with 14 tests.
+- Full `unittest discover` passed with 42 tests.
+- `compileall` passed for `src` and `tests`.
+- No auth, browser, downloader, detail sync, or chapter crawling behavior was introduced.
 
 ## 16. Open Questions
 

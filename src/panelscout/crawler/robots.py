@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import re
 from urllib.parse import urlparse
+from urllib.request import Request, build_opener
 
 from panelscout.config import DEFAULT_USER_AGENT
 
@@ -171,6 +172,48 @@ class RobotsDisallowedError(PermissionError):
     """Raised when robots.txt disallows a URL."""
 
 
+class RobotsLoadError(RuntimeError):
+    """Raised when robots.txt cannot be loaded or parsed."""
+
+
+def load_robots_policy(
+    robots_url: str,
+    *,
+    opener=None,
+    user_agent: str = DEFAULT_USER_AGENT,
+    timeout_seconds: float = 20,
+) -> RobotsPolicy:
+    """Load robots.txt through an injectable opener and parse it.
+
+    Callers should treat any ``RobotsLoadError`` as fail-closed.
+    """
+
+    request = Request(
+        robots_url,
+        headers={
+            "User-Agent": user_agent,
+            "Accept": "text/plain,*/*",
+        },
+    )
+    opener = opener or build_opener()
+
+    try:
+        response = _open(opener, request, timeout_seconds)
+        status = _response_status(response)
+        if status >= 400:
+            raise RobotsLoadError(f"robots.txt returned HTTP {status}")
+        body = response.read()
+    except RobotsLoadError:
+        raise
+    except Exception as error:
+        raise RobotsLoadError(f"Could not load robots.txt: {error}") from error
+
+    text = body.decode(_charset_from_content_type(_response_header(response, "Content-Type")), errors="replace")
+    if not text.strip():
+        raise RobotsLoadError("robots.txt was empty")
+    return RobotsPolicy.from_text(text, robots_url=robots_url)
+
+
 def _parse_delay(value: str) -> float | None:
     try:
         return float(value)
@@ -194,3 +237,39 @@ def _pattern_to_regex(pattern: str) -> str:
     regex = re.escape(pattern).replace(r"\*", ".*")
     suffix = "$" if anchored else ""
     return f"^{regex}{suffix}"
+
+
+def _open(opener, request: Request, timeout_seconds: float):
+    if callable(opener):
+        return opener(request, timeout=timeout_seconds)
+    return opener.open(request, timeout=timeout_seconds)
+
+
+def _response_status(response) -> int:
+    if getattr(response, "status", None) is not None:
+        return int(response.status)
+    if hasattr(response, "getcode"):
+        return int(response.getcode())
+    return 200
+
+
+def _response_header(response, header: str) -> str:
+    if hasattr(response, "headers") and response.headers is not None:
+        value = response.headers.get(header)
+        if value is not None:
+            return str(value)
+    if hasattr(response, "info"):
+        info = response.info()
+        if hasattr(info, "get"):
+            value = info.get(header)
+            if value is not None:
+                return str(value)
+    return ""
+
+
+def _charset_from_content_type(content_type: str) -> str:
+    for part in content_type.split(";")[1:]:
+        key, _, value = part.strip().partition("=")
+        if key.lower() == "charset" and value:
+            return value.strip()
+    return "utf-8"

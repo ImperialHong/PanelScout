@@ -23,6 +23,12 @@ def build_search_url(query: str) -> str:
     return f"{PUBLIC_BASE_URL}/dynamic/{quote(query.strip())}"
 
 
+def build_robots_url() -> str:
+    """Build the public robots.txt URL."""
+
+    return f"{PUBLIC_BASE_URL}/robots.txt"
+
+
 def extract_source_comic_id(url: str) -> str | None:
     """Return the source comic id from a details URL when present."""
 
@@ -63,6 +69,7 @@ __all__ = [
     "PUBLIC_DOMAINS",
     "SOURCE_NAME",
     "build_detail_url",
+    "build_robots_url",
     "build_search_url",
     "extract_source_comic_id",
     "normalize_public_url",

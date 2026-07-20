@@ -9,7 +9,16 @@ import sys
 from typing import Sequence
 
 from panelscout import __version__
+from panelscout.adapters.zaimanhua import SOURCE_NAME, build_robots_url
 from panelscout.config import ConfigError, load_config
+from panelscout.crawler import (
+    FetchError,
+    HtmlFetcher,
+    RobotsDisallowedError,
+    RobotsLoadError,
+    load_robots_policy,
+    search_public_comics,
+)
 from panelscout.exporters import (
     export_comics_csv,
     export_comics_json,
@@ -53,7 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Source adapter to use. Defaults to the configured source.",
     )
-    search_parser.set_defaults(handler=_handle_placeholder)
+    search_parser.add_argument(
+        "--save",
+        action="store_true",
+        help="Save search results to the configured SQLite database.",
+    )
+    search_parser.set_defaults(handler=_handle_search)
 
     sync_parser = subparsers.add_parser("sync", help="Refresh saved metadata.")
     sync_parser.set_defaults(handler=_handle_placeholder)
@@ -77,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None, *, search_fetcher_factory=None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -91,6 +105,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         config = load_config(args.config)
+        if args.command == "search" and search_fetcher_factory is not None:
+            args.search_fetcher_factory = search_fetcher_factory
         handler = getattr(args, "handler", None)
         if handler is None:
             parser.print_help()
@@ -119,6 +135,76 @@ def _handle_placeholder(args: argparse.Namespace, config) -> int:
         f"in this Unit 1 skeleton. Source: {source}. No network request was made."
     )
     return 0
+
+
+def _handle_search(args: argparse.Namespace, config) -> int:
+    query = (args.query or "").strip()
+    if not query:
+        print("panelscout: search query cannot be blank", file=sys.stderr)
+        return 1
+
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported search source '{source}'", file=sys.stderr)
+        return 1
+
+    factory = getattr(args, "search_fetcher_factory", None) or _create_search_fetcher
+    try:
+        fetcher = factory(config)
+        if args.save:
+            with connect_database(config.database_path) as connection:
+                result = search_public_comics(
+                    query,
+                    fetcher,
+                    repository=ComicRepository(connection),
+                )
+        else:
+            result = search_public_comics(query, fetcher)
+    except RobotsLoadError as error:
+        print(f"panelscout: robots policy unavailable; search aborted: {error}", file=sys.stderr)
+        return 1
+    except RobotsDisallowedError as error:
+        print(f"panelscout: robots policy disallowed search: {error}", file=sys.stderr)
+        return 1
+    except FetchError as error:
+        print(f"panelscout: search fetch failed: {error}", file=sys.stderr)
+        return 1
+
+    print(_format_search_result(result, saved=args.save))
+    return 0
+
+
+def _create_search_fetcher(config):
+    robots_policy = load_robots_policy(
+        build_robots_url(),
+        user_agent=config.user_agent,
+    )
+    return HtmlFetcher(config=config, robots_policy=robots_policy)
+
+
+def _format_search_result(result, *, saved: bool) -> str:
+    lines = [
+        f"Search results for: {result.query}",
+        f"Source URL: {result.url}",
+        f"Found: {len(result.comics)}",
+    ]
+    if saved:
+        lines.append(f"Saved: {result.persisted_count}")
+    lines.append("")
+
+    if not result.comics:
+        lines.append("No results found.")
+        return "\n".join(lines)
+
+    for index, comic in enumerate(result.comics, start=1):
+        author = f" by {comic.author}" if comic.author else ""
+        latest = f" | latest: {comic.latest_chapter_title}" if comic.latest_chapter_title else ""
+        status = f" | status: {comic.status}" if comic.status else ""
+        lines.append(f"{index}. {comic.title}{author}{latest}{status}")
+        lines.append(f"   id: {comic.source_comic_id}")
+        if comic.detail_url:
+            lines.append(f"   url: {comic.detail_url}")
+    return "\n".join(lines)
 
 
 def _handle_export(args: argparse.Namespace, config) -> int:
