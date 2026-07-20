@@ -9,7 +9,7 @@ from unittest.mock import patch
 from panelscout import __version__
 from panelscout.cli import main
 from panelscout.crawler import FetchedHtml, RobotsLoadError
-from panelscout.storage import ComicRepository, connect_database
+from panelscout.storage import Comic, ComicRepository, connect_database
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "zaimanhua"
 
@@ -354,6 +354,214 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertIn("robots policy unavailable", stderr)
         self.assertIn("fixture unavailable", stderr)
+
+    def test_watch_add_list_and_remove_uses_configured_database_only(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with connect_database(database_path) as connection:
+                ComicRepository(connection).upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="15599",
+                        title="伪恋同盟",
+                        author="榊葵/绫乃",
+                        status="已完结",
+                        latest_chapter_title="第112话",
+                        detail_url="https://manhua.zaimanhua.com/details/15599",
+                    )
+                )
+
+            add_code, add_stdout, add_stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "watch",
+                    "add",
+                    "15599",
+                    "--notes",
+                    "read next",
+                ]
+            )
+            list_code, list_stdout, list_stderr = run_cli(
+                ["--config", str(config_path), "watch", "list"]
+            )
+            remove_code, remove_stdout, remove_stderr = run_cli(
+                ["--config", str(config_path), "watch", "remove", "15599"]
+            )
+            empty_code, empty_stdout, empty_stderr = run_cli(
+                ["--config", str(config_path), "watch", "list"]
+            )
+
+        self.assertEqual(add_code, 0)
+        self.assertIn("Watching: 伪恋同盟", add_stdout)
+        self.assertIn("Notes: read next", add_stdout)
+        self.assertEqual(add_stderr, "")
+        self.assertEqual(list_code, 0)
+        self.assertIn("Watchlist entries: 1", list_stdout)
+        self.assertIn("伪恋同盟 by 榊葵/绫乃", list_stdout)
+        self.assertIn("latest: 第112话", list_stdout)
+        self.assertIn("notes: read next", list_stdout)
+        self.assertEqual(list_stderr, "")
+        self.assertEqual(remove_code, 0)
+        self.assertIn("Removed watch entry: 15599", remove_stdout)
+        self.assertEqual(remove_stderr, "")
+        self.assertEqual(empty_code, 0)
+        self.assertIn("Watchlist entries: 0", empty_stdout)
+        self.assertIn("No watched comics.", empty_stdout)
+        self.assertEqual(empty_stderr, "")
+
+    def test_watch_add_requires_existing_catalog_comic_without_fetching(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "watch", "add", "missing"]
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("watch add failed", stderr)
+        self.assertIn("local catalog", stderr)
+
+    def test_watch_add_duplicate_is_idempotent_and_updates_notes(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with connect_database(database_path) as connection:
+                ComicRepository(connection).upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="15599",
+                        title="伪恋同盟",
+                    )
+                )
+
+            first_code, first_stdout, first_stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "watch",
+                    "add",
+                    "15599",
+                    "--notes",
+                    "first note",
+                ]
+            )
+            second_code, second_stdout, second_stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "watch",
+                    "add",
+                    "15599",
+                    "--notes",
+                    "second note",
+                ]
+            )
+            with connect_database(database_path) as connection:
+                entries = ComicRepository(connection).list_watchlist_entries()
+
+        self.assertEqual(first_code, 0)
+        self.assertIn("Watching: 伪恋同盟", first_stdout)
+        self.assertEqual(first_stderr, "")
+        self.assertEqual(second_code, 0)
+        self.assertIn("Watching: 伪恋同盟", second_stdout)
+        self.assertEqual(second_stderr, "")
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].comic.source_comic_id, "15599")
+        self.assertEqual(entries[0].notes, "second note")
+
+    def test_watch_remove_unwatched_local_catalog_comic_returns_clear_error(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            with connect_database(database_path) as connection:
+                ComicRepository(connection).upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="15599",
+                        title="伪恋同盟",
+                    )
+                )
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "watch", "remove", "15599"]
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("watch entry not found: 15599", stderr)
+
+    def test_watch_blank_and_unsupported_source_are_rejected(self):
+        blank_code, blank_stdout, blank_stderr = run_cli(["watch", "add", "  "])
+        remove_code, remove_stdout, remove_stderr = run_cli(["watch", "remove", "  "])
+        source_code, source_stdout, source_stderr = run_cli(
+            ["watch", "add", "15599", "--source", "example"]
+        )
+
+        self.assertEqual(blank_code, 1)
+        self.assertEqual(blank_stdout, "")
+        self.assertIn("watch add source comic id cannot be blank", blank_stderr)
+        self.assertEqual(remove_code, 1)
+        self.assertEqual(remove_stdout, "")
+        self.assertIn("watch remove source comic id cannot be blank", remove_stderr)
+        self.assertEqual(source_code, 1)
+        self.assertEqual(source_stdout, "")
+        self.assertIn("unsupported watch source 'example'", source_stderr)
 
 
 class FakeSearchFetcherFactory:

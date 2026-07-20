@@ -7,7 +7,7 @@ import json
 import sqlite3
 from typing import Iterable
 
-from panelscout.storage.models import Chapter, Comic
+from panelscout.storage.models import Chapter, Comic, WatchlistEntry
 
 
 class ComicRepository:
@@ -226,6 +226,97 @@ class ComicRepository:
         ).fetchall()
         return [_chapter_from_row(row) for row in rows]
 
+    def add_watchlist_entry(
+        self,
+        source: str,
+        source_comic_id: str,
+        *,
+        notes: str | None = None,
+    ) -> WatchlistEntry:
+        """Add an existing comic to the watchlist and return the entry."""
+
+        comic = self.get_comic_by_source(source, source_comic_id)
+        if comic is None or comic.id is None:
+            raise StorageError(
+                "Comic is not in the local catalog; save it before adding it to the watchlist"
+            )
+
+        self.connection.execute(
+            """
+            INSERT INTO watchlist_entries (comic_id, notes)
+            VALUES (?, ?)
+            ON CONFLICT(comic_id) DO UPDATE SET
+                notes = COALESCE(excluded.notes, watchlist_entries.notes)
+            """,
+            (comic.id, notes),
+        )
+        self.connection.commit()
+
+        entry = self.get_watchlist_entry(source, source_comic_id)
+        if entry is None:
+            raise StorageError("Watchlist add succeeded but no entry could be loaded")
+        return entry
+
+    def remove_watchlist_entry(self, source: str, source_comic_id: str) -> bool:
+        """Remove a comic from the watchlist if present."""
+
+        comic = self.get_comic_by_source(source, source_comic_id)
+        if comic is None or comic.id is None:
+            return False
+
+        cursor = self.connection.execute(
+            """
+            DELETE FROM watchlist_entries
+            WHERE comic_id = ?
+            """,
+            (comic.id,),
+        )
+        self.connection.commit()
+        return cursor.rowcount > 0
+
+    def get_watchlist_entry(
+        self,
+        source: str,
+        source_comic_id: str,
+    ) -> WatchlistEntry | None:
+        """Load a watchlist entry by source comic identity."""
+
+        row = self.connection.execute(
+            """
+            SELECT
+                watchlist_entries.id AS watchlist_id,
+                watchlist_entries.created_at AS watchlist_created_at,
+                watchlist_entries.last_checked_at AS watchlist_last_checked_at,
+                watchlist_entries.notes AS watchlist_notes,
+                comics.*
+            FROM watchlist_entries
+            JOIN comics ON comics.id = watchlist_entries.comic_id
+            WHERE comics.source = ? AND comics.source_comic_id = ?
+            """,
+            (source, source_comic_id),
+        ).fetchone()
+        return _watchlist_entry_from_row(row) if row is not None else None
+
+    def list_watchlist_entries(self, *, limit: int = 100, offset: int = 0) -> list[WatchlistEntry]:
+        """List watchlist entries ordered by newest additions first."""
+
+        rows = self.connection.execute(
+            """
+            SELECT
+                watchlist_entries.id AS watchlist_id,
+                watchlist_entries.created_at AS watchlist_created_at,
+                watchlist_entries.last_checked_at AS watchlist_last_checked_at,
+                watchlist_entries.notes AS watchlist_notes,
+                comics.*
+            FROM watchlist_entries
+            JOIN comics ON comics.id = watchlist_entries.comic_id
+            ORDER BY watchlist_entries.created_at DESC, watchlist_entries.id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (_bounded_limit(limit), _non_negative(offset)),
+        ).fetchall()
+        return [_watchlist_entry_from_row(row) for row in rows]
+
 
 class StorageError(RuntimeError):
     """Raised when storage operations produce an unexpected state."""
@@ -263,6 +354,16 @@ def _chapter_from_row(row: sqlite3.Row) -> Chapter:
         published_hint=row["published_hint"],
         first_seen_at=row["first_seen_at"],
         last_seen_at=row["last_seen_at"],
+    )
+
+
+def _watchlist_entry_from_row(row: sqlite3.Row) -> WatchlistEntry:
+    return WatchlistEntry(
+        id=row["watchlist_id"],
+        comic=_comic_from_row(row),
+        created_at=row["watchlist_created_at"],
+        last_checked_at=row["watchlist_last_checked_at"],
+        notes=row["watchlist_notes"],
     )
 
 

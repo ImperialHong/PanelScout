@@ -46,6 +46,17 @@ class Chapter:
 
 
 @dataclass(frozen=True, kw_only=True)
+class WatchlistEntry:
+    """Stored watchlist membership joined with comic metadata."""
+
+    comic: Comic
+    id: int | None = None
+    created_at: str | None = None
+    last_checked_at: str | None = None
+    notes: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class CrawlJob:
     """Stored crawl job status.
 

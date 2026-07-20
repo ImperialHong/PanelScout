@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -56,6 +56,20 @@ CREATE TABLE IF NOT EXISTS chapters (
 CREATE INDEX IF NOT EXISTS idx_chapters_comic_id ON chapters(comic_id);
 CREATE INDEX IF NOT EXISTS idx_chapters_order ON chapters(comic_id, chapter_order);
 
+CREATE TABLE IF NOT EXISTS watchlist_entries (
+    id INTEGER PRIMARY KEY,
+    comic_id INTEGER NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_checked_at TEXT,
+    notes TEXT,
+    FOREIGN KEY (comic_id) REFERENCES comics(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_entries_created_at
+    ON watchlist_entries(created_at);
+CREATE INDEX IF NOT EXISTS idx_watchlist_entries_last_checked_at
+    ON watchlist_entries(last_checked_at);
+
 CREATE TABLE IF NOT EXISTS crawl_jobs (
     id INTEGER PRIMARY KEY,
     job_type TEXT NOT NULL,
@@ -99,6 +113,7 @@ CREATE TABLE IF NOT EXISTS auth_sessions (
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_status ON auth_sessions(status);
 
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
 """
 
 

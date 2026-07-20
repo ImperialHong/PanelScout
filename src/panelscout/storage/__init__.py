@@ -1,8 +1,15 @@
 """SQLite storage helpers for PanelScout."""
 
 from panelscout.storage.database import connect_database, initialize_schema
-from panelscout.storage.models import AuthSession, Chapter, Comic, CrawlJob, CrawlLog
-from panelscout.storage.repositories import ComicRepository
+from panelscout.storage.models import (
+    AuthSession,
+    Chapter,
+    Comic,
+    CrawlJob,
+    CrawlLog,
+    WatchlistEntry,
+)
+from panelscout.storage.repositories import ComicRepository, StorageError
 
 __all__ = [
     "AuthSession",
@@ -11,6 +18,8 @@ __all__ = [
     "ComicRepository",
     "CrawlJob",
     "CrawlLog",
+    "StorageError",
+    "WatchlistEntry",
     "connect_database",
     "initialize_schema",
 ]

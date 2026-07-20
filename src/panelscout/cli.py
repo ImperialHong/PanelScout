@@ -26,7 +26,7 @@ from panelscout.exporters import (
     export_comics_json,
     export_comics_markdown,
 )
-from panelscout.storage import ComicRepository, connect_database
+from panelscout.storage import ComicRepository, StorageError, connect_database
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -85,8 +85,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sync_parser.set_defaults(handler=_handle_sync)
 
-    watch_parser = subparsers.add_parser("watch", help="Check watched comics.")
-    watch_parser.set_defaults(handler=_handle_placeholder)
+    watch_parser = subparsers.add_parser("watch", help="Manage watched comics.")
+    watch_subparsers = watch_parser.add_subparsers(dest="watch_command")
+    watch_list = watch_subparsers.add_parser("list", help="List watched comics.")
+    watch_list.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="Maximum number of watchlist entries to show.",
+    )
+    watch_list.set_defaults(handler=_handle_watch_list)
+    watch_add = watch_subparsers.add_parser(
+        "add",
+        help="Add an existing local catalog comic to the watchlist.",
+    )
+    watch_add.add_argument("source_comic_id", nargs="?", help="Source comic id to watch.")
+    watch_add.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+    watch_add.add_argument("--notes", help="Optional local notes for this watch entry.")
+    watch_add.set_defaults(handler=_handle_watch_add)
+    watch_remove = watch_subparsers.add_parser(
+        "remove",
+        help="Remove a comic from the watchlist.",
+    )
+    watch_remove.add_argument("source_comic_id", nargs="?", help="Source comic id to remove.")
+    watch_remove.add_argument(
+        "--source",
+        default=None,
+        help="Source adapter to use. Defaults to the configured source.",
+    )
+    watch_remove.set_defaults(handler=_handle_watch_remove)
+    watch_parser.set_defaults(handler=_handle_watch_list, watch_command="list", limit=100)
 
     export_parser = subparsers.add_parser("export", help="Export collected metadata.")
     export_parser.add_argument(
@@ -341,6 +373,85 @@ def _display_metadata_field(field: str) -> str:
 
 def _display_optional(value: str | None) -> str:
     return value if value else "(none)"
+
+
+def _handle_watch_list(args: argparse.Namespace, config) -> int:
+    with connect_database(config.database_path) as connection:
+        entries = ComicRepository(connection).list_watchlist_entries(limit=args.limit)
+
+    print(_format_watchlist_entries(entries))
+    return 0
+
+
+def _handle_watch_add(args: argparse.Namespace, config) -> int:
+    source_comic_id = (args.source_comic_id or "").strip()
+    if not source_comic_id:
+        print("panelscout: watch add source comic id cannot be blank", file=sys.stderr)
+        return 1
+
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported watch source '{source}'", file=sys.stderr)
+        return 1
+
+    try:
+        with connect_database(config.database_path) as connection:
+            entry = ComicRepository(connection).add_watchlist_entry(
+                source,
+                source_comic_id,
+                notes=args.notes,
+            )
+    except StorageError as error:
+        print(f"panelscout: watch add failed: {error}", file=sys.stderr)
+        return 1
+
+    print(f"Watching: {entry.comic.title}")
+    print(f"id: {entry.comic.source_comic_id}")
+    if entry.notes:
+        print(f"Notes: {entry.notes}")
+    return 0
+
+
+def _handle_watch_remove(args: argparse.Namespace, config) -> int:
+    source_comic_id = (args.source_comic_id or "").strip()
+    if not source_comic_id:
+        print("panelscout: watch remove source comic id cannot be blank", file=sys.stderr)
+        return 1
+
+    source = args.source or config.source
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported watch source '{source}'", file=sys.stderr)
+        return 1
+
+    with connect_database(config.database_path) as connection:
+        removed = ComicRepository(connection).remove_watchlist_entry(source, source_comic_id)
+
+    if not removed:
+        print(f"panelscout: watch entry not found: {source_comic_id}", file=sys.stderr)
+        return 1
+
+    print(f"Removed watch entry: {source_comic_id}")
+    return 0
+
+
+def _format_watchlist_entries(entries) -> str:
+    lines = [f"Watchlist entries: {len(entries)}", ""]
+    if not entries:
+        lines.append("No watched comics.")
+        return "\n".join(lines)
+
+    for index, entry in enumerate(entries, start=1):
+        comic = entry.comic
+        author = f" by {comic.author}" if comic.author else ""
+        latest = f" | latest: {comic.latest_chapter_title}" if comic.latest_chapter_title else ""
+        status = f" | status: {comic.status}" if comic.status else ""
+        lines.append(f"{index}. {comic.title}{author}{latest}{status}")
+        lines.append(f"   id: {comic.source_comic_id}")
+        if comic.detail_url:
+            lines.append(f"   url: {comic.detail_url}")
+        if entry.notes:
+            lines.append(f"   notes: {entry.notes}")
+    return "\n".join(lines)
 
 
 def _handle_export(args: argparse.Namespace, config) -> int:

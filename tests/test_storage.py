@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 import sqlite3
 import unittest
 
-from panelscout.storage import Comic, ComicRepository, connect_database
+from panelscout.storage import Comic, ComicRepository, StorageError, connect_database
 from panelscout.storage.models import Chapter
 
 
@@ -20,12 +20,20 @@ class StorageTests(unittest.TestCase):
                     """
                 ).fetchall()
                 table_names = {row["name"] for row in rows}
+                migrations = {
+                    row["version"]
+                    for row in connection.execute(
+                        "SELECT version FROM schema_migrations"
+                    ).fetchall()
+                }
 
         self.assertIn("comics", table_names)
         self.assertIn("chapters", table_names)
+        self.assertIn("watchlist_entries", table_names)
         self.assertIn("crawl_jobs", table_names)
         self.assertIn("crawl_logs", table_names)
         self.assertIn("auth_sessions", table_names)
+        self.assertIn(2, migrations)
 
     def test_upserts_and_searches_comics(self):
         with connect_database(":memory:") as connection:
@@ -159,6 +167,73 @@ class StorageTests(unittest.TestCase):
                         chapter_url="https://example.test/orphan",
                     )
                 )
+
+    def test_watchlist_add_list_remove_existing_comics(self):
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+            first = repository.upsert_comic(
+                Comic(
+                    source="zaimanhua",
+                    source_comic_id="watch-1",
+                    title="Watched One",
+                    author="Creator",
+                    latest_chapter_title="Chapter 9",
+                    detail_url="https://example.test/details/watch-1",
+                )
+            )
+            repository.upsert_comic(
+                Comic(
+                    source="zaimanhua",
+                    source_comic_id="watch-2",
+                    title="Watched Two",
+                )
+            )
+
+            entry = repository.add_watchlist_entry(
+                "zaimanhua",
+                "watch-1",
+                notes="priority",
+            )
+            duplicate = repository.add_watchlist_entry("zaimanhua", "watch-1")
+            repository.add_watchlist_entry("zaimanhua", "watch-2")
+            entries = repository.list_watchlist_entries()
+            removed = repository.remove_watchlist_entry("zaimanhua", "watch-1")
+            missing_removed = repository.remove_watchlist_entry("zaimanhua", "watch-1")
+            remaining = repository.list_watchlist_entries()
+
+        self.assertEqual(entry.id, duplicate.id)
+        self.assertEqual(entry.comic.id, first.id)
+        self.assertEqual(duplicate.notes, "priority")
+        self.assertEqual([item.comic.source_comic_id for item in entries], ["watch-2", "watch-1"])
+        self.assertTrue(removed)
+        self.assertFalse(missing_removed)
+        self.assertEqual([item.comic.source_comic_id for item in remaining], ["watch-2"])
+
+    def test_watchlist_requires_existing_local_comic(self):
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+
+            with self.assertRaises(StorageError):
+                repository.add_watchlist_entry("zaimanhua", "missing")
+
+    def test_watchlist_entry_is_deleted_when_comic_is_deleted(self):
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+            comic = repository.upsert_comic(
+                Comic(
+                    source="zaimanhua",
+                    source_comic_id="cascade-1",
+                    title="Cascade Comic",
+                )
+            )
+            repository.add_watchlist_entry("zaimanhua", "cascade-1")
+
+            self.assertEqual(len(repository.list_watchlist_entries()), 1)
+            connection.execute("DELETE FROM comics WHERE id = ?", (comic.id,))
+            connection.commit()
+            entries = repository.list_watchlist_entries()
+
+        self.assertEqual(entries, [])
 
 
 if __name__ == "__main__":

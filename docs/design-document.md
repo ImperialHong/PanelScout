@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.13
+Version: 0.14
 
 Date: 2026-07-20
 
@@ -330,9 +330,9 @@ Unit 1 accepted scope:
 
 ### MVP 3: Watchlist
 
-- Save comics to watchlist.
-- Scheduled update checks.
-- Markdown update report.
+- Save comics to watchlist. Status: baseline completed in Unit 11.
+- Scheduled update checks. Status: pending.
+- Markdown update report. Status: pending.
 
 ### MVP 4: Local UI
 
@@ -756,6 +756,40 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
 - No live network, auth, browser, downloader, session, cookie, or image/content crawling behavior was introduced.
+
+### Unit 11: Local Watchlist Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/cli.py`
+- `src/panelscout/storage/__init__.py`
+- `src/panelscout/storage/database.py`
+- `src/panelscout/storage/models.py`
+- `src/panelscout/storage/repositories.py`
+- `tests/test_cli.py`
+- `tests/test_storage.py`
+
+Validation summary:
+
+- SQLite schema now includes `watchlist_entries` with a unique comic membership and `ON DELETE CASCADE`.
+- `WatchlistEntry` models local watchlist membership joined with comic metadata.
+- `ComicRepository` now supports adding, removing, loading, and listing watchlist entries.
+- Watchlist add only accepts comics already saved in the local catalog and performs no network fetch.
+- Duplicate watchlist add is idempotent and does not create duplicate rows.
+- CLI supports `panelscout watch list`, `panelscout watch add SOURCE_COMIC_ID`, and `panelscout watch remove SOURCE_COMIC_ID`.
+- Watchlist CLI commands use the configured SQLite database and provide clear empty, missing, and unsupported-source behavior.
+- Storage tests cover schema creation, add/list/remove, duplicate add, missing comic rejection, deterministic ordering, and cascade delete.
+- CLI tests cover add/list/remove, duplicate add, missing local catalog comic, removing an unwatched local comic, blank references, and unsupported sources.
+- Full `unittest discover` passed with 59 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- No scheduler, update report generation, live network, auth, browser, downloader, session, cookie, or image/content crawling behavior was introduced.
 
 ## 16. Open Questions
 
