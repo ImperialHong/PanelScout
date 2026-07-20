@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.6
+Version: 0.7
 
 Date: 2026-07-20
 
@@ -563,6 +563,41 @@ Validation summary:
 - Full `unittest discover` passed with 23 tests.
 - `compileall` passed for `src` and `tests`.
 - No network, fetcher, crawler, login, or downloader behavior was introduced.
+
+### Unit 5: Robots Policy and Fetcher Baseline
+
+Status: accepted
+
+Validation owner: Agent2
+
+Accepted on: 2026-07-20
+
+Implemented files:
+
+- `src/panelscout/crawler/__init__.py`
+- `src/panelscout/crawler/robots.py`
+- `src/panelscout/crawler/fetcher.py`
+- `tests/test_robots.py`
+- `tests/test_fetcher.py`
+
+Validation summary:
+
+- Local robots policy parser allows `/dynamic/` and `/details/`.
+- Local robots policy parser disallows `/api/`, `/dingyue/`, and matching blocked static paths such as `/_nuxt/*.js`.
+- `Crawl-delay: 1` is parsed from the ZaiManHua robots fixture.
+- Fetcher uses an injectable opener, sleeper, and clock for no-network tests.
+- Fetcher applies the configured PanelScout User-Agent.
+- Fetcher checks robots before opening a URL.
+- Fetcher rejects blocked statuses and non-HTML content types.
+- CLI `search` remains a placeholder and is not wired to live fetching yet.
+- Unit 5 focused tests passed with 11 tests.
+- Full `unittest discover` passed with 34 tests.
+- `compileall` passed for `src` and `tests`.
+- No live network, login, browser, downloader, or crawler workflow behavior was introduced.
+
+Future note:
+
+- When robots loading is added, unknown or unavailable robots state should fail closed or require an explicit user-visible override for local development.
 
 ## 16. Open Questions
 
