@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.16
+Version: 0.17
 
 Date: 2026-07-20
 
@@ -164,19 +164,23 @@ Output layout:
 ```text
 download_root/
   Manga Title/
-    Manga Title-Chapter Title--001.jpg
-    Manga Title-Chapter Title--002.png
-    Manga Title-Chapter Title--003.jpg
+    Chapter Title/
+      001.jpg
+      002.png
+    Chapter Title 2/
+      001.jpg
 ```
 
 Naming rules:
 
-- The extra manga directory is required so future chapter downloads for the same title share one local folder.
-- File name format: `comic_title-chapter_title--page_number.ext`.
+- The top-level manga directory is required so future chapter downloads for the same title share one local folder.
+- Each chapter gets its own subdirectory under the manga directory.
+- Directory format: `download_root/comic_title/chapter_title/`.
+- Image file format: `page_number.ext`.
 - Page numbers are zero-padded from `001`.
 - `comic_title` and `chapter_title` must be filename-safe; replace `/ \ : * ? " < > |` and control characters.
-- If two generated names collide, append a stable numeric suffix before the extension.
-- Example: `伪恋同盟-第003话--001.jpg`.
+- If two generated directories or file names collide, append a stable numeric suffix.
+- Example: `伪恋同盟/第003话/001.jpg`.
 
 ### 6.10 Authenticated Session Mode
 
@@ -380,7 +384,7 @@ MVP 4 required UI elements:
 - Download controls: download selected chapters, pause/resume queue, retry failed items, open download folder.
 - Download queue tabs: pending, running, completed, failed.
 - Download item fields: comic title, chapter title, page count, saved count, current image, status, speed, error message.
-- Download directory controls: root directory input, open folder button, naming preview using `comic_title-chapter_title--001.ext`.
+- Download directory controls: root directory input, open folder button, naming preview using `comic_title/chapter_title/001.ext`.
 - Watchlist panel: checked count, new chapters, metadata changes, failures, last checked time, schedule status.
 - Update history panel: latest watch check summary, Markdown report export, failed item detail.
 - Settings panel: database path, download root path, source, user agent, request delay, concurrency, report output path, and logs.
