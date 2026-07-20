@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.15
+Version: 0.16
 
 Date: 2026-07-20
 
@@ -8,9 +8,9 @@ Chinese name: 格探
 
 ## 1. Project Summary
 
-PanelScout is a local comic discovery, cataloging, and update-monitoring application. The first supported source is ZaiManHua-related public pages and user-authorized account-visible pages. The software focuses on collecting metadata, tracking chapter changes, and helping the user organize reading links.
+PanelScout is a local comic discovery, cataloging, update-monitoring, and personal archiving application. The first supported source is ZaiManHua-related public pages and user-authorized account-visible pages. The software focuses on collecting metadata, tracking chapter changes, helping the user organize reading links, and saving user-authorized chapter images locally.
 
-The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryption, access controls, or site-imposed restrictions. Login support must use a local user-driven browser session and must not collect or store plaintext passwords. Content download is not part of the default MVP and must remain an opt-in, permission-gated module.
+The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryption, access controls, or site-imposed restrictions. Login support must use a local user-driven browser session and must not collect or store plaintext passwords. Content download is a planned opt-in, permission-gated module for personal local use; it must never run silently by default.
 
 ## 2. Goals
 
@@ -20,6 +20,7 @@ The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryptio
 - Provide update notifications or update reports.
 - Export collected metadata to CSV, JSON, or Markdown.
 - Support a local authenticated session mode for content that the user's own account can normally view.
+- Save user-authorized free or account-visible chapter images into a predictable local folder layout.
 - Keep crawling polite, rate-limited, cache-aware, and observable.
 
 ## 3. Non-Goals
@@ -29,7 +30,7 @@ The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryptio
 - No accessing content unavailable to the user's own logged-in account.
 - No CAPTCHA solving.
 - No anti-bot evasion.
-- No mass image mirroring by default.
+- No mass image mirroring or whole-site archiving by default.
 - No redistribution or sharing workflow for copyrighted content.
 - No public hosted scraping service in the first version.
 
@@ -143,7 +144,7 @@ Supported first formats:
 
 ### 6.9 Downloader
 
-Downloader is a future optional module.
+Downloader is a planned opt-in module for personal local archiving of chapters the user is authorized to view.
 
 Rules:
 
@@ -152,6 +153,30 @@ Rules:
 - Only works for content the user is authorized to archive.
 - Must not bypass anti-hotlinking or restricted access.
 - Must store source URL, crawl time, and permission note.
+- Must use conservative concurrency and delay defaults.
+- Must skip, resume, or verify already-downloaded files instead of redownloading blindly.
+- Must write temporary files first and rename only after a complete image response is saved.
+- Must preserve the original image extension when known.
+- Must not include credentials, cookies, session state, or account identifiers in output folders.
+
+Output layout:
+
+```text
+download_root/
+  Manga Title/
+    Manga Title-Chapter Title--001.jpg
+    Manga Title-Chapter Title--002.png
+    Manga Title-Chapter Title--003.jpg
+```
+
+Naming rules:
+
+- The extra manga directory is required so future chapter downloads for the same title share one local folder.
+- File name format: `comic_title-chapter_title--page_number.ext`.
+- Page numbers are zero-padded from `001`.
+- `comic_title` and `chapter_title` must be filename-safe; replace `/ \ : * ? " < > |` and control characters.
+- If two generated names collide, append a stable numeric suffix before the extension.
+- Example: `伪恋同盟-第003话--001.jpg`.
 
 ### 6.10 Authenticated Session Mode
 
@@ -337,9 +362,34 @@ Unit 1 accepted scope:
 ### MVP 4: Local UI
 
 - Search screen.
+- Local library screen.
 - Comic detail screen.
 - Watchlist screen.
 - Update history screen.
+- Chapter selection and local download screen.
+- Download queue/status screen.
+- Download settings screen.
+
+MVP 4 required UI elements:
+
+- Top navigation tabs: Search, Local Library, Watchlist, Update History, Downloads, Settings.
+- Search toolbar: keyword input, source selector, search button, save result action.
+- Left result/library pane: compact comic cards with title, author, status, latest chapter, source comic id, and quick actions.
+- Right detail pane: metadata summary, detail URL, visible chapter list, sync action, watch/unwatch action, and export/report actions.
+- Chapter selector: checkbox grid/list, refresh chapters action, select all, clear selection, and selected count.
+- Download controls: download selected chapters, pause/resume queue, retry failed items, open download folder.
+- Download queue tabs: pending, running, completed, failed.
+- Download item fields: comic title, chapter title, page count, saved count, current image, status, speed, error message.
+- Download directory controls: root directory input, open folder button, naming preview using `comic_title-chapter_title--001.ext`.
+- Watchlist panel: checked count, new chapters, metadata changes, failures, last checked time, schedule status.
+- Update history panel: latest watch check summary, Markdown report export, failed item detail.
+- Settings panel: database path, download root path, source, user agent, request delay, concurrency, report output path, and logs.
+
+MVP 4 UI boundaries:
+
+- The UI may expose downloader controls, but download execution must remain explicit and user-triggered.
+- Do not show login controls until MVP 5.
+- Do not expose paid/VIP bypass, CAPTCHA solving, anti-bot evasion, or redistribution features.
 
 ### MVP 5: Authenticated Session Mode
 
@@ -396,6 +446,11 @@ panel-scout/
         json_exporter.py
         csv_exporter.py
         markdown_exporter.py
+      downloader/
+        planner.py
+        image_fetcher.py
+        filenames.py
+        queue.py
   tests/
     fixtures/
     test_zaimanhua_parser.py
@@ -414,6 +469,9 @@ panel-scout/
 - Do not circumvent technical protections.
 - Keep metadata and source attribution.
 - Make download-related code opt-in and permission-gated.
+- Download only chapters the user is authorized to view; never attempt paid/VIP/restricted bypass.
+- Downloaded files are for personal local use and must not add redistribution, sharing, or publishing workflows.
+- Keep downloader defaults polite: low concurrency, request delays, retries with backoff, and clear failure states.
 - Store sessions only locally.
 - Encrypt session storage or use an OS credential store when practical.
 - Exclude session files, cookies, and local databases from git.
@@ -440,7 +498,7 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 ### Main Risks
 
-- Copyright risk increases sharply if the project moves from metadata tracking to content archiving.
+- Copyright risk increases sharply when the project moves from metadata tracking to content archiving; downloader scope must stay personal, explicit, and source-policy aware.
 - Saved cookies are sensitive account material, even without storing passwords.
 - Site layout changes can break parser selectors.
 - Aggressive crawling can trigger blocking or account restrictions.
@@ -453,7 +511,8 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 3. Add detail sync and update detection.
 4. Add Authenticated Session Mode with manual local login.
 5. Add local UI after CLI behavior is stable.
-6. Reassess downloader scope only after legal and source-policy review.
+6. Add opt-in personal downloader UI and local file naming planner before any image fetching.
+7. Reassess downloader scope continuously against legal and source-policy risk.
 
 ## 15. Implementation Progress
 
