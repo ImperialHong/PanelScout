@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.1
+Version: 0.2
 
 Date: 2026-07-20
 
@@ -8,9 +8,9 @@ Chinese name: 格探
 
 ## 1. Project Summary
 
-PanelScout is a local comic discovery, cataloging, and update-monitoring application. The first supported source is ZaiManHua-related public pages. The software focuses on collecting public metadata, tracking chapter changes, and helping the user organize reading links.
+PanelScout is a local comic discovery, cataloging, and update-monitoring application. The first supported source is ZaiManHua-related public pages and user-authorized account-visible pages. The software focuses on collecting metadata, tracking chapter changes, and helping the user organize reading links.
 
-The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryption, access controls, or site-imposed restrictions. Content download is not part of the default MVP and must remain an opt-in, permission-gated module.
+The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryption, access controls, or site-imposed restrictions. Login support must use a local user-driven browser session and must not collect or store plaintext passwords. Content download is not part of the default MVP and must remain an opt-in, permission-gated module.
 
 ## 2. Goals
 
@@ -19,11 +19,14 @@ The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryptio
 - Store chapter list metadata and detect new chapters.
 - Provide update notifications or update reports.
 - Export collected metadata to CSV, JSON, or Markdown.
+- Support a local authenticated session mode for content that the user's own account can normally view.
 - Keep crawling polite, rate-limited, cache-aware, and observable.
 
 ## 3. Non-Goals
 
-- No bypassing login-only or restricted content.
+- No collecting, transmitting, or storing plaintext usernames or passwords.
+- No bypassing login, session expiration, CAPTCHA, or account checks.
+- No accessing content unavailable to the user's own logged-in account.
 - No CAPTCHA solving.
 - No anti-bot evasion.
 - No mass image mirroring by default.
@@ -150,6 +153,39 @@ Rules:
 - Must not bypass anti-hotlinking or restricted access.
 - Must store source URL, crawl time, and permission note.
 
+### 6.10 Authenticated Session Mode
+
+Authenticated Session Mode allows PanelScout to access pages that are visible only after the user logs in with their own free account.
+
+This mode must be implemented as local browser-based login, not credential collection.
+
+Recommended command flow:
+
+- `panelscout auth login zaimanhua`: Open a local Playwright browser window and let the user log in manually.
+- `panelscout auth status zaimanhua`: Check whether a saved session still appears valid.
+- `panelscout auth logout zaimanhua`: Delete the saved local session.
+- `panelscout sync --auth zaimanhua`: Reuse the saved session for metadata and chapter sync.
+
+Rules:
+
+- The user enters credentials directly into the website in a local browser window.
+- PanelScout never asks for, receives, logs, stores, or uploads plaintext credentials.
+- CAPTCHA or additional verification must be solved manually by the user.
+- If a session expires, PanelScout pauses and asks the user to log in again.
+- Session state is saved locally as cookies and browser storage.
+- Session files should be excluded from git.
+- Session files should be encrypted when practical, or stored through the OS credential store.
+- Authenticated crawling must still respect rate limits, robots rules where applicable, and source policy checks.
+- Authenticated crawling must not expand the scope to paid, restricted, removed, or otherwise unavailable content.
+
+Suggested local storage:
+
+```text
+~/.panelscout/sessions/zaimanhua.storage.json
+```
+
+For macOS, the preferred long-term storage is Keychain-backed session encryption. The plain JSON storage path is acceptable only for local development and must carry a warning.
+
 ## 7. Data Model
 
 ### comics
@@ -204,12 +240,26 @@ Rules:
 - `parser_status`
 - `error_message`
 
+### auth_sessions
+
+- `id`
+- `source`
+- `storage_backend`
+- `session_path`
+- `created_at`
+- `last_validated_at`
+- `expires_hint`
+- `status`
+- `warning_acknowledged_at`
+
 ## 8. Crawl Flow
 
 ```text
 User query
     |
 Validate source policy and robots rules
+    |
+Load optional authenticated session
     |
 Build crawl job
     |
@@ -228,7 +278,25 @@ Compare with stored chapters
 Generate update report
 ```
 
-## 9. MVP Scope
+## 9. Authenticated Crawl Flow
+
+```text
+User runs auth login
+    |
+Open local browser
+    |
+User manually logs in on source website
+    |
+Save browser storage state locally
+    |
+Validate session with a lightweight account-visible page
+    |
+Run metadata or chapter sync with saved session
+    |
+Pause on expiration, CAPTCHA, 403, 429, or policy uncertainty
+```
+
+## 10. MVP Scope
 
 ### MVP 1: Metadata CLI
 
@@ -259,19 +327,28 @@ Generate update report
 - Watchlist screen.
 - Update history screen.
 
-## 10. Suggested Technology Stack
+### MVP 5: Authenticated Session Mode
+
+- `auth login` command using Playwright.
+- Local session storage.
+- Session status validation.
+- Authenticated metadata sync.
+- Automatic pause on expired or blocked sessions.
+- Session file gitignore rules.
+
+## 11. Suggested Technology Stack
 
 - Language: Python 3.12+
 - HTTP client: `httpx`
 - HTML parser: `selectolax` or `beautifulsoup4`
-- Optional browser fallback: `playwright`
+- Browser automation: `playwright` for authenticated login and optional rendering fallback
 - CLI framework: `typer`
 - Database: SQLite
 - ORM or query layer: SQLModel, SQLAlchemy Core, or plain SQL
 - Scheduling: APScheduler
 - Testing: pytest
 
-## 11. Repository Layout
+## 12. Repository Layout
 
 ```text
 panel-scout/
@@ -289,6 +366,10 @@ panel-scout/
         fetcher.py
         robots.py
         scheduler.py
+      auth/
+        session.py
+        browser_login.py
+        storage.py
       adapters/
         zaimanhua.py
       parsers/
@@ -304,22 +385,66 @@ panel-scout/
   tests/
     fixtures/
     test_zaimanhua_parser.py
+    test_auth_session.py
 ```
 
-## 12. Safety and Compliance Requirements
+## 13. Safety and Compliance Requirements
 
 - Check robots rules before crawling supported sources.
 - Use conservative rate limits.
 - Stop on repeated blocking responses.
 - Keep a clear User-Agent.
-- Do not access private, paid, or restricted pages.
+- Do not collect or store plaintext credentials.
+- Do not access pages outside the user's own account-visible scope.
+- Do not access paid, removed, or restricted pages unless the user's account is explicitly authorized and the source policy allows it.
 - Do not circumvent technical protections.
 - Keep metadata and source attribution.
 - Make download-related code opt-in and permission-gated.
+- Store sessions only locally.
+- Encrypt session storage or use an OS credential store when practical.
+- Exclude session files, cookies, and local databases from git.
 
-## 13. Open Questions
+## 14. Feasibility Audit
+
+Overall feasibility: medium-high for a local metadata and update tracker; medium for authenticated crawling; low for generalized content downloading without legal and technical risk.
+
+### Feasible Now
+
+- Metadata search, list parsing, and local cataloging are feasible with `httpx`, HTML parsing, and SQLite.
+- Chapter update detection is feasible if detail pages expose stable chapter links or titles.
+- CSV, JSON, and Markdown exports are straightforward.
+- CLI-first delivery is feasible and keeps the first release small.
+- Authenticated session reuse is feasible with Playwright storage state as long as the user logs in locally.
+
+### Needs Early Validation
+
+- ZaiManHua page structure may differ between public, mobile, original, and manhua subdomains.
+- Some pages may require JavaScript rendering, so parser fixtures must be collected from both raw HTTP and Playwright-rendered HTML.
+- Session lifetime and login verification behavior are unknown and should be tested before designing background sync.
+- robots and source policy behavior should be checked per subdomain, not only at the top-level domain.
+- Authenticated requests may behave differently from anonymous requests, especially around rate limits.
+
+### Main Risks
+
+- Copyright risk increases sharply if the project moves from metadata tracking to content archiving.
+- Saved cookies are sensitive account material, even without storing passwords.
+- Site layout changes can break parser selectors.
+- Aggressive crawling can trigger blocking or account restrictions.
+- A public hosted version would introduce privacy, abuse, and compliance problems and should remain out of scope.
+
+### Recommended First Implementation Order
+
+1. Build anonymous metadata search and parser tests.
+2. Build SQLite storage and export.
+3. Add detail sync and update detection.
+4. Add Authenticated Session Mode with manual local login.
+5. Add local UI after CLI behavior is stable.
+6. Reassess downloader scope only after legal and source-policy review.
+
+## 15. Open Questions
 
 - Should the first interface be CLI-only or include a local web UI from day one?
 - Which exact filters are required for the first search workflow?
 - Should update reports be written to local Markdown files, desktop notifications, or both?
 - Should the project support multiple comic sites after the first adapter is stable?
+- Should authenticated session files use OS credential storage in MVP 5, or is encrypted local file storage acceptable for the first private release?
