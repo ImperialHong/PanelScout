@@ -11,3 +11,19 @@ This repository has a tested local MVP baseline for public search, detail sync, 
 ## Guiding Principle
 
 PanelScout defaults to metadata-only collection. Any content download feature must be explicitly enabled only for resources the user has permission to archive.
+
+## Live Auth Smoke Tests
+
+Live authenticated smoke tests are disabled by default. To run them locally, copy `.env.example` to `.env.local`, fill in a dedicated test account, set `PANELSCOUT_LIVE_AUTH=1`, and keep `.env.local` out of git:
+
+```bash
+cp .env.example .env.local
+```
+
+Then run:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unittest tests.test_live_auth_smoke
+```
+
+This test logs in with environment-provided credentials only for the current local test run, then saves temporary browser storage state under the test temp directory. Do not commit real usernames, passwords, cookies, or storage-state files.

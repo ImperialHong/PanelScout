@@ -28,6 +28,7 @@ DEFAULT_AUTH_STORAGE_BACKEND = "playwright_storage_state"
 AUTH_SESSION_STATUS_STORED = "stored"
 BLOCKED_STATUSES = {401, 403, 429}
 HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+CHAPTER_LINK_SELECTOR = '.zj_list_con a[href*="/view/"], a[href*="/view/"]'
 
 
 class AuthSessionError(RuntimeError):
@@ -130,6 +131,7 @@ class AuthenticatedBrowserHtmlFetcher:
         session_path: str | Path,
         robots_policy: RobotsPolicy | None = None,
         timeout_seconds: float = 20,
+        render_wait_seconds: float = 5,
         request_delay_seconds: float | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
@@ -141,6 +143,7 @@ class AuthenticatedBrowserHtmlFetcher:
             raise AuthSessionError(f"auth session file missing: {self.session_path}")
         self.robots_policy = robots_policy
         self.timeout_seconds = timeout_seconds
+        self.render_wait_seconds = render_wait_seconds
         self.request_delay_seconds = (
             request_delay_seconds
             if request_delay_seconds is not None
@@ -211,6 +214,21 @@ class AuthenticatedBrowserHtmlFetcher:
                         wait_until="domcontentloaded",
                         timeout=int(self.timeout_seconds * 1000),
                     )
+                    render_timeout_ms = int(self.render_wait_seconds * 1000)
+                    try:
+                        page.wait_for_load_state(
+                            "networkidle",
+                            timeout=render_timeout_ms,
+                        )
+                    except PlaywrightTimeoutError:
+                        pass
+                    try:
+                        page.wait_for_selector(
+                            CHAPTER_LINK_SELECTOR,
+                            timeout=render_timeout_ms,
+                        )
+                    except PlaywrightTimeoutError:
+                        pass
                     status_code = int(response.status) if response is not None else 200
                     headers = response.headers if response is not None else {}
                     content_type = str(headers.get("content-type", "text/html"))

@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.31
+Version: 0.32
 
 Date: 2026-07-26
 
@@ -10,7 +10,7 @@ Chinese name: 格探
 
 PanelScout is a local comic discovery, cataloging, update-monitoring, and personal archiving application. The first supported source is ZaiManHua-related public pages and user-authorized account-visible pages. The software focuses on collecting metadata, tracking chapter changes, helping the user organize reading links, and saving user-authorized chapter images locally.
 
-The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryption, access controls, or site-imposed restrictions. Login support must use a local user-driven browser session and must not collect or store plaintext passwords. Content download is a planned opt-in, permission-gated module for personal local use; it must never run silently by default.
+The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryption, access controls, or site-imposed restrictions. Login support normally uses a local user-driven browser session. Development-only live smoke tests may read a dedicated test username and password from git-ignored local environment variables, but the project must not commit, log, or persist plaintext passwords. Content download is a planned opt-in, permission-gated module for personal local use; it must never run silently by default.
 
 ## 2. Goals
 
@@ -43,7 +43,7 @@ Priority rules:
 
 ## 3. Non-Goals
 
-- No collecting, transmitting, or storing plaintext usernames or passwords.
+- No committing, logging, or persisting plaintext usernames or passwords. Development-only smoke tests may read a dedicated test account from git-ignored local environment variables for a single run.
 - No bypassing login, session expiration, CAPTCHA, or account checks.
 - No accessing content unavailable to the user's own logged-in account.
 - No CAPTCHA solving.
@@ -230,7 +230,7 @@ Naming rules:
 
 Authenticated Session Mode allows PanelScout to access pages that are visible only after the user logs in with their own free account.
 
-This mode must be implemented as local browser-based login, not credential collection.
+This mode defaults to local browser-based login. Development live smoke tests may automate login with a dedicated test account read from git-ignored environment variables, then immediately convert that login into local browser storage state for the rest of the workflow.
 
 Recommended command flow:
 
@@ -247,13 +247,15 @@ Current baseline:
 - `auth status` currently reads local metadata and whether the storage-state file exists. Server-side validation is not wired yet.
 - `auth logout` deletes the recorded local storage-state file and SQLite session metadata.
 - Unit 31 wires `sync --auth` to the saved storage-state file through an optional Playwright authenticated HTML fetcher.
+- Unit 32 adds a default-skipped live authenticated smoke test harness that reads credentials only from `.env.local` or process environment when `PANELSCOUT_LIVE_AUTH=1`.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
 - Public search/download workflows remain anonymous unless a later unit explicitly wires safe session reuse for those paths.
 
 Rules:
 
 - The user enters credentials directly into the website in a local browser window.
-- PanelScout never asks for, receives, logs, stores, or uploads plaintext credentials.
+- The development live smoke test may receive a dedicated test account through git-ignored local environment variables.
+- PanelScout never commits, logs, stores, or uploads plaintext credentials.
 - CAPTCHA or additional verification must be solved manually by the user.
 - If a session expires, PanelScout pauses and asks the user to log in again.
 - Session state is saved locally as cookies and browser storage.

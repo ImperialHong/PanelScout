@@ -19,6 +19,11 @@ venv/
 env/
 ENV/
 
+# Local environment secrets
+.env
+.env.local
+.env.*.local
+
 # Local databases
 *.sqlite
 *.sqlite3

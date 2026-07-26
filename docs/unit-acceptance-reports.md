@@ -922,3 +922,35 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
 - No credential collection, default credential storage, automatic credential replay, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, authenticated download reuse, public hosting, background daemon, or queue runtime was introduced.
+
+### Unit 32: Live Auth Smoke Env Harness
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-26
+
+Implemented files:
+
+- `.env.example`
+- `.gitignore`
+- `README.md`
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `src/panelscout/auth/session.py`
+- `tests/test_live_auth_smoke.py`
+
+Validation summary:
+
+- Added a git-ignored local env convention for development-only live authenticated smoke tests.
+- Added `.env.example` with blank values for `PANELSCOUT_LIVE_AUTH`, `PANELSCOUT_TEST_USERNAME`, `PANELSCOUT_TEST_PASSWORD`, source, comic id, and minimum visible chapter count.
+- Added a default-skipped live smoke test gated by `PANELSCOUT_LIVE_AUTH=1` and explicit local credentials.
+- The live smoke test reads `.env.local` only on the developer machine, uses a temporary session directory, and does not print or commit the username, password, cookies, or storage-state file.
+- The test logs in through Playwright, saves temporary browser storage state, reuses `AuthenticatedBrowserHtmlFetcher`, and asserts that authenticated detail sync sees at least the configured minimum chapter count.
+- Authenticated detail fetch now waits briefly for rendered chapter links before capturing page content, which matches the real site behavior observed during manual testing.
+- Full `unittest discover -s tests -v` passed with 123 tests and 1 default-skipped live auth smoke test.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Sensitive-value scan found no checked-in match for the provided test account username or password.
+- No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.
