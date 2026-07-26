@@ -43,6 +43,24 @@ class ChapterImageDiscoveryTests(unittest.TestCase):
         self.assertEqual(len(images), 1)
         self.assertEqual(images[0].source_url, "https://manhua.zaimanhua.com/comic/1/001.jpg")
 
+    def test_ignores_rendered_reader_chrome_images(self):
+        html = """
+        <img src="https://static.zaimanhua.com/ocomic/images/mh_intro/txImg.png">
+        <img src="https://manhua.zaimanhua.com/_nuxt/zmh-logo.d5f02b77.png">
+        <img src="https://images.zaimanhua.com/w%2Fcomic%2F001.jpg">
+        """
+
+        images = parse_public_chapter_images(
+            html,
+            chapter_url="https://manhua.zaimanhua.com/view/example/1/1",
+        )
+
+        self.assertEqual(len(images), 1)
+        self.assertEqual(
+            images[0].source_url,
+            "https://images.zaimanhua.com/w%2Fcomic%2F001.jpg",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

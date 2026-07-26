@@ -149,6 +149,38 @@ class CliTests(unittest.TestCase):
         self.assertIn("search query cannot be blank", stderr)
         self.assertEqual(factory.calls, 0)
 
+    def test_search_auth_requires_saved_session_before_fetching(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            config_path.write_text(
+                "\n".join(
+                    [
+                        "[paths]",
+                        f'database_path = "{database_path}"',
+                        f'data_dir = "{root / "data"}"',
+                        f'cache_dir = "{root / "cache"}"',
+                        f'session_dir = "{root / "sessions"}"',
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            factory = RaisingSearchFetcherFactory(
+                AssertionError("factory should not be called")
+            )
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "search", "伪恋", "--auth"],
+                search_fetcher_factory=factory,
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("auth search unavailable", stderr)
+        self.assertIn("auth session not configured", stderr)
+        self.assertEqual(factory.calls, 0)
+
     def test_search_robots_load_failure_fails_closed(self):
         factory = RaisingSearchFetcherFactory(RobotsLoadError("fixture unavailable"))
 
@@ -1468,6 +1500,42 @@ class CliTests(unittest.TestCase):
         self.assertFalse(fake_config_home.exists())
         self.assertFalse(fake_data_home.exists())
         self.assertFalse(fake_cache_home.exists())
+
+    def test_download_auth_requires_saved_session_before_fetching(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            output_root = root / "downloads"
+            _write_test_config(config_path, root, database_path)
+            _seed_download_chapter(database_path)
+            download_factory = RaisingDownloadFetcherFactory(
+                AssertionError("factory should not be called")
+            )
+
+            code, stdout, stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "download",
+                    "plan",
+                    "15599",
+                    "--chapter",
+                    "1",
+                    "--auth",
+                    "--output-root",
+                    str(output_root),
+                    "--permission-note",
+                    "用户确认该账号可访问该章节，仅用于本机开发烟测。",
+                ],
+                download_fetcher_factory=download_factory,
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("auth download unavailable", stderr)
+        self.assertIn("auth session not configured", stderr)
+        self.assertEqual(download_factory.calls, 0)
 
 
 def _write_test_config(config_path: Path, root: Path, database_path: Path) -> None:

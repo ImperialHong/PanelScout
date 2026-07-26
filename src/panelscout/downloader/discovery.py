@@ -6,7 +6,7 @@ from html import unescape
 from html.parser import HTMLParser
 import json
 import re
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from panelscout.downloader.planner import (
     KNOWN_IMAGE_EXTENSIONS,
@@ -27,6 +27,8 @@ SCRIPT_IMAGE_PATTERN = re.compile(
     r"""["'](?P<url>[^"']+\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?[^"']*)?)["']""",
     re.IGNORECASE,
 )
+CHAPTER_IMAGE_HOSTS = {"images.zaimanhua.com"}
+PUBLIC_CHAPTER_IMAGE_PREFIXES = ("/comic/", "/manga/", "/w/")
 
 
 def parse_public_chapter_images(
@@ -150,11 +152,24 @@ def _candidate_from_url(
     extension = infer_image_extension(candidate)
     if extension == "bin" or extension not in KNOWN_IMAGE_EXTENSIONS:
         return None
+    if not _is_supported_chapter_image_url(source_url):
+        return None
     return DownloadImageCandidate(
         source_url=source_url,
         extension=extension,
         page_number=page_number,
     )
+
+
+def _is_supported_chapter_image_url(source_url: str) -> bool:
+    parsed = urlparse(source_url)
+    host = parsed.netloc.lower()
+    path = parsed.path
+    if host in CHAPTER_IMAGE_HOSTS:
+        return "/webpic/" not in path.lower()
+    if host == "manhua.zaimanhua.com":
+        return path.startswith(PUBLIC_CHAPTER_IMAGE_PREFIXES)
+    return False
 
 
 def _dedupe_candidates(

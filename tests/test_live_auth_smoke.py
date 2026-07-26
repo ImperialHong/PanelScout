@@ -108,6 +108,7 @@ def _run_live_browser_login(
     username: str,
     password: str,
 ) -> BrowserLoginResult:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
 
     session_path.parent.mkdir(parents=True, exist_ok=True)
@@ -120,7 +121,11 @@ def _run_live_browser_login(
             _dismiss_initial_overlays(page)
             _open_login_form(page)
             _fill_login_form(page, username=username, password=password)
-            page.wait_for_load_state("networkidle", timeout=10_000)
+            _wait_for_login_completion(page)
+            try:
+                page.wait_for_load_state("networkidle", timeout=10_000)
+            except PlaywrightTimeoutError:
+                pass
             context.storage_state(path=str(session_path))
         finally:
             context.close()
@@ -149,7 +154,7 @@ def _open_login_form(page) -> None:
     ):
         try:
             page.locator(selector).first.click(timeout=2_000)
-            page.wait_for_timeout(500)
+            page.wait_for_selector("input[type='password']", timeout=3_000)
         except Exception:  # noqa: BLE001 - try the next source-login affordance.
             continue
         if _password_input_count(page) > 0:
@@ -157,13 +162,15 @@ def _open_login_form(page) -> None:
 
 
 def _dismiss_initial_overlays(page) -> None:
+    page.wait_for_timeout(1_000)
     for selector in (
         ".teenbtn",
         "text=我知道了",
     ):
         try:
+            page.wait_for_selector(selector, timeout=3_000)
             locator = page.locator(selector).first
-            if locator.is_visible(timeout=1_000):
+            if locator.is_visible():
                 locator.click(timeout=2_000)
                 page.wait_for_timeout(500)
         except Exception:  # noqa: BLE001 - overlay may be absent on repeat visits.
@@ -219,6 +226,18 @@ def _fill_login_form(page, *, username: str, password: str) -> None:
             continue
     if not submitted:
         password_input.press("Enter")
+
+
+def _wait_for_login_completion(page) -> None:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    try:
+        page.wait_for_function(
+            "() => document.body && document.body.innerText.includes('个人中心')",
+            timeout=12_000,
+        )
+    except PlaywrightTimeoutError as error:
+        raise AssertionError("login did not reach authenticated page state") from error
 
 
 def _password_input_count(page) -> int:

@@ -956,3 +956,36 @@ Validation summary:
 - `git diff --check` passed.
 - Sensitive-value scan found no checked-in match for the provided test account username or password.
 - No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.
+
+### Unit 33: Authenticated Search-To-Download Live Smoke
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-26
+
+Implemented files:
+
+- `README.md`
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `src/panelscout/auth/session.py`
+- `src/panelscout/cli.py`
+- `src/panelscout/downloader/discovery.py`
+- `tests/test_chapter_image_discovery.py`
+- `tests/test_cli.py`
+- `tests/test_live_auth_smoke.py`
+
+Validation summary:
+
+- Added `panelscout search QUERY --auth [SOURCE] --save` for reusing a saved local authenticated browser session to render JavaScript-backed search result pages.
+- Added `panelscout download plan/run SOURCE_COMIC_ID --chapter REF --auth [SOURCE]` for reusing the saved session while rendering selected chapter pages.
+- Authenticated search and download validate local session metadata and the storage-state file before creating any network fetcher.
+- Authenticated chapter rendering waits for real chapter images before capturing page content.
+- Chapter image discovery now ignores reader chrome, logos, static layout assets, and cover-style webpic assets, preserving only supported chapter image URLs.
+- Live full-flow smoke using a git-ignored local env/session passed: `search --auth --save` found `伪恋同盟` id `15599`; `sync --auth --save` persisted `112` visible chapters; `download plan --auth` for `第01话` discovered `1` chapter image; `download run --auth` saved `1` JPEG with `0` failures.
+- Saved smoke output was written only under the git-ignored `.panelscout/live-e2e/downloads-fullflow/` directory.
+- Full default `unittest discover -s tests -v` passed with 126 tests and 1 default-skipped live auth smoke test.
+- `compileall` passed for `src` and `tests`.
+- No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.

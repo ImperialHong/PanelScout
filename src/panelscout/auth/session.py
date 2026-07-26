@@ -132,6 +132,7 @@ class AuthenticatedBrowserHtmlFetcher:
         robots_policy: RobotsPolicy | None = None,
         timeout_seconds: float = 20,
         render_wait_seconds: float = 5,
+        render_ready_selector: str | None = CHAPTER_LINK_SELECTOR,
         request_delay_seconds: float | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
@@ -144,6 +145,7 @@ class AuthenticatedBrowserHtmlFetcher:
         self.robots_policy = robots_policy
         self.timeout_seconds = timeout_seconds
         self.render_wait_seconds = render_wait_seconds
+        self.render_ready_selector = render_ready_selector
         self.request_delay_seconds = (
             request_delay_seconds
             if request_delay_seconds is not None
@@ -222,13 +224,14 @@ class AuthenticatedBrowserHtmlFetcher:
                         )
                     except PlaywrightTimeoutError:
                         pass
-                    try:
-                        page.wait_for_selector(
-                            CHAPTER_LINK_SELECTOR,
-                            timeout=render_timeout_ms,
-                        )
-                    except PlaywrightTimeoutError:
-                        pass
+                    if self.render_ready_selector:
+                        try:
+                            page.wait_for_selector(
+                                self.render_ready_selector,
+                                timeout=render_timeout_ms,
+                            )
+                        except PlaywrightTimeoutError:
+                            pass
                     status_code = int(response.status) if response is not None else 200
                     headers = response.headers if response is not None else {}
                     content_type = str(headers.get("content-type", "text/html"))

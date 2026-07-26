@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.32
+Version: 0.33
 
 Date: 2026-07-26
 
@@ -248,6 +248,8 @@ Current baseline:
 - `auth logout` deletes the recorded local storage-state file and SQLite session metadata.
 - Unit 31 wires `sync --auth` to the saved storage-state file through an optional Playwright authenticated HTML fetcher.
 - Unit 32 adds a default-skipped live authenticated smoke test harness that reads credentials only from `.env.local` or process environment when `PANELSCOUT_LIVE_AUTH=1`.
+- Unit 33 wires `search --auth` and `download plan/run --auth` to the saved storage-state file for JavaScript-rendered search and chapter-page rendering.
+- Authenticated download page rendering filters out reader chrome, logos, and layout images before planning files, then keeps image byte fetching on the existing conservative fetcher.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
 - Public search/download workflows remain anonymous unless a later unit explicitly wires safe session reuse for those paths.
 

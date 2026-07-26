@@ -90,6 +90,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Save search results to the configured SQLite database.",
     )
+    search_parser.add_argument(
+        "--auth",
+        nargs="?",
+        const=True,
+        default=False,
+        help="Use a saved local authenticated browser session to render search results.",
+    )
     search_parser.set_defaults(handler=_handle_search)
 
     sync_parser = subparsers.add_parser("sync", help="Refresh public comic details.")
@@ -357,6 +364,13 @@ def _add_download_common_arguments(parser: argparse.ArgumentParser) -> None:
         help="Required note confirming user-authorized personal local archiving.",
     )
     parser.add_argument(
+        "--auth",
+        nargs="?",
+        const=True,
+        default=False,
+        help="Use a saved local authenticated browser session to render the chapter page.",
+    )
+    parser.add_argument(
         "--source",
         default=None,
         help="Source adapter to use. Defaults to the configured source.",
@@ -454,8 +468,8 @@ def _handle_search(args: argparse.Namespace, config) -> int:
         print(f"panelscout: unsupported search source '{source}'", file=sys.stderr)
         return 1
 
-    factory = getattr(args, "search_fetcher_factory", None) or _create_search_fetcher
     try:
+        factory = _search_fetcher_factory_for_args(args, config, source)
         fetcher = factory(config)
         if args.save:
             with connect_database(config.database_path) as connection:
@@ -466,6 +480,9 @@ def _handle_search(args: argparse.Namespace, config) -> int:
                 )
         else:
             result = search_public_comics(query, fetcher)
+    except AuthSessionError as error:
+        print(f"panelscout: auth search unavailable: {error}", file=sys.stderr)
+        return 1
     except RobotsLoadError as error:
         print(f"panelscout: robots policy unavailable; search aborted: {error}", file=sys.stderr)
         return 1
@@ -682,17 +699,38 @@ def _handle_auth_logout(args: argparse.Namespace, config) -> int:
     return 0
 
 
-def _create_authenticated_sync_fetcher(config, session: AuthSession):
+def _create_authenticated_sync_fetcher(
+    config,
+    session: AuthSession,
+    *,
+    render_ready_selector: str | None = None,
+    render_wait_seconds: float | None = None,
+):
     if not session.session_path:
         raise AuthSessionError("auth session metadata has no session file path")
     robots_policy = load_robots_policy(
         build_robots_url(),
         user_agent=config.user_agent,
     )
+    fetcher_options = {}
+    if render_ready_selector is not None:
+        fetcher_options["render_ready_selector"] = render_ready_selector
+    if render_wait_seconds is not None:
+        fetcher_options["render_wait_seconds"] = render_wait_seconds
     return AuthenticatedBrowserHtmlFetcher(
         config=config,
         session_path=session.session_path,
         robots_policy=robots_policy,
+        **fetcher_options,
+    )
+
+
+def _create_authenticated_search_fetcher(config, session: AuthSession):
+    return _create_authenticated_sync_fetcher(
+        config,
+        session,
+        render_ready_selector='a[href*="/details/"]',
+        render_wait_seconds=10,
     )
 
 
@@ -714,6 +752,15 @@ def _create_sync_fetcher(config):
 
 def _create_download_fetcher(config):
     return _create_sync_fetcher(config)
+
+
+def _create_authenticated_download_fetcher(config, session: AuthSession):
+    return _create_authenticated_sync_fetcher(
+        config,
+        session,
+        render_ready_selector='img[src*="images.zaimanhua.com"]',
+        render_wait_seconds=10,
+    )
 
 
 def _create_image_fetcher(config):
@@ -816,6 +863,26 @@ def _display_metadata_field(field: str) -> str:
 
 def _display_optional(value: str | None) -> str:
     return value if value else "(none)"
+
+
+def _search_fetcher_factory_for_args(args: argparse.Namespace, config, source: str):
+    injected_factory = getattr(args, "search_fetcher_factory", None)
+    auth_source = _sync_auth_source(args, source)
+    if auth_source is None:
+        return injected_factory or _create_search_fetcher
+    if auth_source != source:
+        raise AuthSessionError(
+            f"search auth source '{auth_source}' does not match search source '{source}'"
+        )
+    if auth_source != SOURCE_NAME:
+        raise AuthSessionError(f"unsupported auth source '{auth_source}'")
+    session = _require_auth_session(config, auth_source)
+    if injected_factory is not None:
+        return injected_factory
+    return lambda runtime_config: _create_authenticated_search_fetcher(
+        runtime_config,
+        session,
+    )
 
 
 def _auth_source_from_args(args: argparse.Namespace, config) -> str:
@@ -1138,8 +1205,8 @@ def _handle_download_plan(args: argparse.Namespace, config) -> int:
         return 1
     source, comic, chapter = loaded
 
-    factory = getattr(args, "download_fetcher_factory", None) or _create_download_fetcher
     try:
+        factory = _download_fetcher_factory_for_args(args, config, source)
         download_root = _download_root_from_args(args, config)
         result = plan_public_chapter_download(
             comic=comic,
@@ -1148,6 +1215,9 @@ def _handle_download_plan(args: argparse.Namespace, config) -> int:
             download_root=download_root,
             permission_note=args.permission_note,
         )
+    except AuthSessionError as error:
+        print(f"panelscout: auth download unavailable: {error}", file=sys.stderr)
+        return 1
     except (RobotsLoadError, RobotsDisallowedError, FetchError, ValueError) as error:
         print(f"panelscout: download plan failed: {error}", file=sys.stderr)
         return 1
@@ -1162,9 +1232,9 @@ def _handle_download_run(args: argparse.Namespace, config) -> int:
         return 1
     source, comic, chapter = loaded
 
-    download_factory = getattr(args, "download_fetcher_factory", None) or _create_download_fetcher
     image_factory = getattr(args, "image_fetcher_factory", None) or _create_image_fetcher
     try:
+        download_factory = _download_fetcher_factory_for_args(args, config, source)
         download_root = _download_root_from_args(args, config)
         result = save_public_chapter_download(
             comic=comic,
@@ -1174,6 +1244,9 @@ def _handle_download_run(args: argparse.Namespace, config) -> int:
             download_root=download_root,
             permission_note=args.permission_note,
         )
+    except AuthSessionError as error:
+        print(f"panelscout: auth download unavailable: {error}", file=sys.stderr)
+        return 1
     except (RobotsLoadError, RobotsDisallowedError, FetchError, ValueError) as error:
         print(f"panelscout: download run failed: {error}", file=sys.stderr)
         return 1
@@ -1221,6 +1294,26 @@ def _load_download_selection(args: argparse.Namespace, config):
             print(f"panelscout: local chapter not found: {chapter_reference}", file=sys.stderr)
             return None
         return source, comic, chapter
+
+
+def _download_fetcher_factory_for_args(args: argparse.Namespace, config, source: str):
+    injected_factory = getattr(args, "download_fetcher_factory", None)
+    auth_source = _sync_auth_source(args, source)
+    if auth_source is None:
+        return injected_factory or _create_download_fetcher
+    if auth_source != source:
+        raise AuthSessionError(
+            f"download auth source '{auth_source}' does not match download source '{source}'"
+        )
+    if auth_source != SOURCE_NAME:
+        raise AuthSessionError(f"unsupported auth source '{auth_source}'")
+    session = _require_auth_session(config, auth_source)
+    if injected_factory is not None:
+        return injected_factory
+    return lambda runtime_config: _create_authenticated_download_fetcher(
+        runtime_config,
+        session,
+    )
 
 
 def _download_root_from_args(args: argparse.Namespace, config):
