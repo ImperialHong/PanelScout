@@ -2,7 +2,7 @@
 
 Version: 0.35
 
-Date: 2026-07-26
+Date: 2026-07-27
 
 Chinese name: 格探
 
@@ -253,7 +253,7 @@ Current baseline:
 - Unit 32 adds a default-skipped live authenticated smoke test harness that reads credentials only from `.env.local` or process environment when `PANELSCOUT_LIVE_AUTH=1`.
 - Unit 33 wires `search --auth` and `download plan/run --auth` to the saved storage-state file for JavaScript-rendered search and chapter-page rendering.
 - Unit 34 wires the interactive local UI search, sync, download plan, and download run requests to the same authenticated fetcher path when the `登录会话` switch is enabled.
-- Unit 35 switches supported authenticated reader pages to `滚动阅读`, scrolls through lazy-loaded content, and snapshots rendered DOM/network image URLs before chapter image discovery.
+- Unit 35 switches supported authenticated reader pages to `滚动阅读` and snapshots rendered DOM/network image URLs before chapter image discovery.
 - Authenticated download page rendering filters out reader chrome, logos, and layout images before planning files, then keeps image byte fetching on the existing conservative fetcher.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
 - Public search/download workflows remain available when auth is disabled.

@@ -183,11 +183,6 @@ class AuthenticatedBrowserHtmlFetcher:
         timeout_seconds: float = 20,
         render_wait_seconds: float = 5,
         render_ready_selector: str | None = CHAPTER_LINK_SELECTOR,
-        render_scroll_to_bottom: bool = False,
-        render_scroll_max_seconds: float = 20,
-        render_scroll_min_rounds: int = 0,
-        render_scroll_step_px: int = 1200,
-        render_scroll_pause_seconds: float = 0.25,
         render_image_snapshot: bool = False,
         render_click_texts: tuple[str, ...] = (),
         request_delay_seconds: float | None = None,
@@ -203,11 +198,6 @@ class AuthenticatedBrowserHtmlFetcher:
         self.timeout_seconds = timeout_seconds
         self.render_wait_seconds = render_wait_seconds
         self.render_ready_selector = render_ready_selector
-        self.render_scroll_to_bottom = render_scroll_to_bottom
-        self.render_scroll_max_seconds = render_scroll_max_seconds
-        self.render_scroll_min_rounds = render_scroll_min_rounds
-        self.render_scroll_step_px = render_scroll_step_px
-        self.render_scroll_pause_seconds = render_scroll_pause_seconds
         self.render_image_snapshot = render_image_snapshot
         self.render_click_texts = render_click_texts
         self.request_delay_seconds = (
@@ -308,12 +298,6 @@ class AuthenticatedBrowserHtmlFetcher:
                             )
                         except PlaywrightTimeoutError:
                             pass
-                    if self.render_scroll_to_bottom:
-                        self._scroll_to_bottom(
-                            page,
-                            PlaywrightTimeoutError,
-                            rendered_image_values=rendered_image_values,
-                        )
                     status_code = int(response.status) if response is not None else 200
                     headers = response.headers if response is not None else {}
                     content_type = str(headers.get("content-type", "text/html"))
@@ -369,80 +353,6 @@ class AuthenticatedBrowserHtmlFetcher:
                 page.wait_for_load_state("networkidle", timeout=timeout_ms)
             except timeout_error_type:
                 pass
-
-    def _scroll_to_bottom(
-        self,
-        page,
-        timeout_error_type: type[Exception],
-        *,
-        rendered_image_values: list[str],
-    ) -> None:
-        deadline = self._monotonic() + max(0.0, self.render_scroll_max_seconds)
-        min_rounds = max(0, int(self.render_scroll_min_rounds))
-        step_px = max(1, int(self.render_scroll_step_px))
-        pause_ms = max(0, int(self.render_scroll_pause_seconds * 1000))
-        stable_rounds = 0
-        previous_signature: tuple[int, int, int] | None = None
-        rounds = 0
-
-        while True:
-            rounds += 1
-            page.mouse.move(640, 360)
-            page.mouse.wheel(0, step_px)
-            page.evaluate("(step) => window.scrollBy(0, step)", step_px)
-            if pause_ms:
-                page.wait_for_timeout(pause_ms)
-            try:
-                page.wait_for_load_state("networkidle", timeout=1000)
-            except timeout_error_type:
-                pass
-            rendered_image_values.extend(_rendered_image_values(page))
-
-            metrics = page.evaluate(
-                """
-                selector => {
-                  const root = document.documentElement;
-                  const body = document.body || root;
-                  const height = Math.max(
-                    root.scrollHeight,
-                    body.scrollHeight,
-                    root.offsetHeight,
-                    body.offsetHeight,
-                    root.clientHeight
-                  );
-                  const viewport = window.innerHeight || root.clientHeight || 0;
-                  const y = window.scrollY || window.pageYOffset || 0;
-                  const count = selector
-                    ? document.querySelectorAll(selector).length
-                    : document.querySelectorAll("img, source").length;
-                  return {
-                    scrollHeight: height,
-                    viewportHeight: viewport,
-                    scrollY: y,
-                    imageCount: count
-                  };
-                }
-                """,
-                self.render_ready_selector,
-            )
-            signature = (
-                int(metrics["scrollHeight"]),
-                int(metrics["scrollY"]),
-                len(set(rendered_image_values)) or int(metrics["imageCount"]),
-            )
-            at_bottom = (
-                int(metrics["scrollY"]) + int(metrics["viewportHeight"])
-                >= int(metrics["scrollHeight"]) - 2
-            )
-            if at_bottom and previous_signature == signature:
-                stable_rounds += 1
-            else:
-                stable_rounds = 0
-            if at_bottom and stable_rounds >= 2 and rounds >= min_rounds:
-                break
-            if self._monotonic() >= deadline:
-                break
-            previous_signature = signature
 
 
 def _append_rendered_image_snapshot(

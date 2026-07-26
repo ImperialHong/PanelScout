@@ -706,8 +706,6 @@ def _create_authenticated_sync_fetcher(
     *,
     render_ready_selector: str | None = None,
     render_wait_seconds: float | None = None,
-    render_scroll_to_bottom: bool = False,
-    render_scroll_min_rounds: int = 0,
     render_image_snapshot: bool = False,
     render_click_texts: tuple[str, ...] = (),
 ):
@@ -722,10 +720,6 @@ def _create_authenticated_sync_fetcher(
         fetcher_options["render_ready_selector"] = render_ready_selector
     if render_wait_seconds is not None:
         fetcher_options["render_wait_seconds"] = render_wait_seconds
-    if render_scroll_to_bottom:
-        fetcher_options["render_scroll_to_bottom"] = True
-    if render_scroll_min_rounds:
-        fetcher_options["render_scroll_min_rounds"] = render_scroll_min_rounds
     if render_image_snapshot:
         fetcher_options["render_image_snapshot"] = True
     if render_click_texts:
@@ -774,8 +768,6 @@ def _create_authenticated_download_fetcher(config, session: AuthSession):
         render_ready_selector=CHAPTER_IMAGE_RENDER_SELECTOR,
         render_wait_seconds=10,
         render_click_texts=("滚动阅读",),
-        render_scroll_to_bottom=True,
-        render_scroll_min_rounds=20,
         render_image_snapshot=True,
     )
 

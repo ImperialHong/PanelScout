@@ -1046,11 +1046,12 @@ Validation summary:
 
 - Confirmed the previous one-image authenticated chapter smoke result was a reader-mode coverage gap for lazy-loaded chapters, not an acceptable final result.
 - Authenticated download rendering now switches supported reader pages to `滚动阅读` before chapter image discovery.
-- Chapter rendering now sends real wheel events, scrolls through the reader, and accumulates rendered DOM image attributes plus image network response URLs.
+- Chapter rendering captures rendered DOM image attributes plus image network response URLs after the mode switch; manual and live checks showed no scroll action is needed for the tested source page once `滚动阅读` is active.
 - The authenticated HTML snapshot appends a local `__PANELSCOUT_CHAPTER_IMAGES__` JSON marker so the existing string-based discovery parser can see runtime-loaded image URLs without adding new direct site API calls.
 - CLI `download plan/run --auth` and local UI `auth: true` download planning/run both use the scroll-reader renderer.
 - Added parser coverage for the rendered browser image snapshot marker, including dedupe and reader-chrome filtering.
-- Live UI API plan smoke using the git-ignored local session passed for `伪恋同盟` id `15599`, `第112话`: `images_discovered` changed from `1` to `17`; first planned file `001.jpg`, last planned file `017.png`.
+- Live no-scroll renderer smoke using the git-ignored local session passed for `伪恋同盟` id `15599`, `第112话`: after clicking `滚动阅读`, `images_discovered` was `17`; first source image ended in `pic_001.jpg`, last source image ended in `pic_017.png`.
+- Live UI API plan smoke passed for the same chapter with `17` planned files; first planned file `001.jpg`, last planned file `017.png`.
 - Live UI API download smoke saved all `17` images for `第112话` with `0` skipped and `0` failures under the git-ignored `.panelscout/live-e2e/downloads-scroll-112-20260726162751/` directory.
 - File-system verification found exactly `17` files in the chapter directory; `017.png` was valid `800x1250` PNG data.
 - Focused `unittest` coverage passed with `57` tests across chapter discovery, auth session, CLI, and UI API suites.
