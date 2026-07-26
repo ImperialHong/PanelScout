@@ -117,6 +117,7 @@ def _run_live_browser_login(
         page = context.new_page()
         try:
             page.goto(start_url, wait_until="domcontentloaded", timeout=20_000)
+            _dismiss_initial_overlays(page)
             _open_login_form(page)
             _fill_login_form(page, username=username, password=password)
             page.wait_for_load_state("networkidle", timeout=10_000)
@@ -139,8 +140,9 @@ def _open_login_form(page) -> None:
         return
 
     for selector in (
+        ".tplogin",
         "text=登录",
-        "a:has-text('登录')",
+        "p:has-text('登录')",
         "button:has-text('登录')",
         "[class*='login']",
         "[class*='Login']",
@@ -154,11 +156,27 @@ def _open_login_form(page) -> None:
             return
 
 
+def _dismiss_initial_overlays(page) -> None:
+    for selector in (
+        ".teenbtn",
+        "text=我知道了",
+    ):
+        try:
+            locator = page.locator(selector).first
+            if locator.is_visible(timeout=1_000):
+                locator.click(timeout=2_000)
+                page.wait_for_timeout(500)
+        except Exception:  # noqa: BLE001 - overlay may be absent on repeat visits.
+            continue
+
+
 def _fill_login_form(page, *, username: str, password: str) -> None:
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
     try:
-        password_input = page.locator("input[type='password']").first
+        password_input = page.locator(
+            ".login_pop input[type='password'], input[type='password']"
+        ).first
         password_input.wait_for(timeout=8_000)
     except PlaywrightTimeoutError as error:
         raise AssertionError("login password input was not found") from error
@@ -166,6 +184,8 @@ def _fill_login_form(page, *, username: str, password: str) -> None:
     username_input = _first_visible_locator(
         page,
         (
+            ".login_pop input[placeholder*='用户名']",
+            ".login_pop input[type='text']",
             "input[name='username']",
             "input[name='user']",
             "input[name='account']",
@@ -182,6 +202,9 @@ def _fill_login_form(page, *, username: str, password: str) -> None:
     password_input.fill(password)
     submitted = False
     for selector in (
+        ".login_pop button.lg_button",
+        ".login_pop button:has-text('登录')",
+        ".login_pop .lg_button",
         "button[type='submit']",
         "button:has-text('登录')",
         "a:has-text('登录')",

@@ -947,8 +947,10 @@ Validation summary:
 - Added `.env.example` with blank values for `PANELSCOUT_LIVE_AUTH`, `PANELSCOUT_TEST_USERNAME`, `PANELSCOUT_TEST_PASSWORD`, source, comic id, and minimum visible chapter count.
 - Added a default-skipped live smoke test gated by `PANELSCOUT_LIVE_AUTH=1` and explicit local credentials.
 - The live smoke test reads `.env.local` only on the developer machine, uses a temporary session directory, and does not print or commit the username, password, cookies, or storage-state file.
+- The live smoke test handles the source site's first-visit reader-safety prompt before opening the account/password login dialog.
 - The test logs in through Playwright, saves temporary browser storage state, reuses `AuthenticatedBrowserHtmlFetcher`, and asserts that authenticated detail sync sees at least the configured minimum chapter count.
 - Authenticated detail fetch now waits briefly for rendered chapter links before capturing page content, which matches the real site behavior observed during manual testing.
+- Live validation with a git-ignored local env file passed for source comic id `15599`: title `伪恋同盟`, `112` visible chapters, first visible `第112话`, last visible `第01话`.
 - Full `unittest discover -s tests -v` passed with 123 tests and 1 default-skipped live auth smoke test.
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
