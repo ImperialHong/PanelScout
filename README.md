@@ -36,6 +36,8 @@ PYTHONPATH=src .venv/bin/panelscout sync 15599 --auth --save
 PYTHONPATH=src .venv/bin/panelscout download run 15599 --chapter "第01话" --auth --permission-note "用户确认该账号可访问该章节，仅用于本机开发烟测。"
 ```
 
+Authenticated chapter rendering switches supported reader pages to `滚动阅读`, scrolls through lazy-loaded content, and records rendered DOM/network image URLs before planning file paths.
+
 The interactive local UI also reuses the same saved session. Start it locally and keep the `登录会话` switch enabled for search, detail sync, download planning, and download execution:
 
 ```bash

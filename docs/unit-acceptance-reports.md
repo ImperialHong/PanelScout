@@ -1022,3 +1022,38 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
 - No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.
+
+### Unit 35: Authenticated Scroll Reader Image Discovery
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-27
+
+Implemented files:
+
+- `README.md`
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `src/panelscout/auth/__init__.py`
+- `src/panelscout/auth/session.py`
+- `src/panelscout/cli.py`
+- `src/panelscout/ui/api.py`
+- `tests/test_chapter_image_discovery.py`
+
+Validation summary:
+
+- Confirmed the previous one-image authenticated chapter smoke result was a reader-mode coverage gap for lazy-loaded chapters, not an acceptable final result.
+- Authenticated download rendering now switches supported reader pages to `滚动阅读` before chapter image discovery.
+- Chapter rendering now sends real wheel events, scrolls through the reader, and accumulates rendered DOM image attributes plus image network response URLs.
+- The authenticated HTML snapshot appends a local `__PANELSCOUT_CHAPTER_IMAGES__` JSON marker so the existing string-based discovery parser can see runtime-loaded image URLs without adding new direct site API calls.
+- CLI `download plan/run --auth` and local UI `auth: true` download planning/run both use the scroll-reader renderer.
+- Added parser coverage for the rendered browser image snapshot marker, including dedupe and reader-chrome filtering.
+- Live UI API plan smoke using the git-ignored local session passed for `伪恋同盟` id `15599`, `第112话`: `images_discovered` changed from `1` to `17`; first planned file `001.jpg`, last planned file `017.png`.
+- Live UI API download smoke saved all `17` images for `第112话` with `0` skipped and `0` failures under the git-ignored `.panelscout/live-e2e/downloads-scroll-112-20260726162751/` directory.
+- File-system verification found exactly `17` files in the chapter directory; `017.png` was valid `800x1250` PNG data.
+- Focused `unittest` coverage passed with `57` tests across chapter discovery, auth session, CLI, and UI API suites.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.

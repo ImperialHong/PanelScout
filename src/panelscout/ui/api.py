@@ -7,7 +7,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from panelscout.adapters.zaimanhua import SOURCE_NAME, build_robots_url
-from panelscout.auth import AuthenticatedBrowserHtmlFetcher, AuthSessionError
+from panelscout.auth import (
+    CHAPTER_IMAGE_RENDER_SELECTOR,
+    AuthenticatedBrowserHtmlFetcher,
+    AuthSessionError,
+)
 from panelscout.config import PanelScoutConfig
 from panelscout.crawler import (
     FetchError,
@@ -313,6 +317,10 @@ def _create_authenticated_html_fetcher(
     *,
     render_ready_selector: str | None = None,
     render_wait_seconds: float | None = None,
+    render_scroll_to_bottom: bool = False,
+    render_scroll_min_rounds: int = 0,
+    render_image_snapshot: bool = False,
+    render_click_texts: tuple[str, ...] = (),
 ) -> AuthenticatedBrowserHtmlFetcher:
     if not session.session_path:
         raise AuthSessionError("auth session metadata has no session file path")
@@ -325,6 +333,14 @@ def _create_authenticated_html_fetcher(
         fetcher_options["render_ready_selector"] = render_ready_selector
     if render_wait_seconds is not None:
         fetcher_options["render_wait_seconds"] = render_wait_seconds
+    if render_scroll_to_bottom:
+        fetcher_options["render_scroll_to_bottom"] = True
+    if render_scroll_min_rounds:
+        fetcher_options["render_scroll_min_rounds"] = render_scroll_min_rounds
+    if render_image_snapshot:
+        fetcher_options["render_image_snapshot"] = True
+    if render_click_texts:
+        fetcher_options["render_click_texts"] = render_click_texts
     return AuthenticatedBrowserHtmlFetcher(
         config=config,
         session_path=session.session_path,
@@ -359,8 +375,12 @@ def _create_authenticated_download_fetcher(
     return _create_authenticated_html_fetcher(
         config,
         session,
-        render_ready_selector='img[src*="images.zaimanhua.com"]',
+        render_ready_selector=CHAPTER_IMAGE_RENDER_SELECTOR,
         render_wait_seconds=10,
+        render_click_texts=("滚动阅读",),
+        render_scroll_to_bottom=True,
+        render_scroll_min_rounds=20,
+        render_image_snapshot=True,
     )
 
 

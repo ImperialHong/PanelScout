@@ -8,7 +8,9 @@ storage state is saved for later authenticated requests.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
+import re
 import time
 from typing import Callable
 from urllib.parse import urlparse
@@ -28,7 +30,55 @@ DEFAULT_AUTH_STORAGE_BACKEND = "playwright_storage_state"
 AUTH_SESSION_STATUS_STORED = "stored"
 BLOCKED_STATUSES = {401, 403, 429}
 HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+IMAGE_URL_PATTERN = re.compile(
+    r"\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?|$)",
+    re.IGNORECASE,
+)
 CHAPTER_LINK_SELECTOR = '.zj_list_con a[href*="/view/"], a[href*="/view/"]'
+CHAPTER_IMAGE_RENDER_SELECTOR = (
+    'img[src*="images.zaimanhua.com"], '
+    'img[data-src*="images.zaimanhua.com"], '
+    'img[data-original*="images.zaimanhua.com"], '
+    'img[data-url*="images.zaimanhua.com"], '
+    'img[data-image*="images.zaimanhua.com"], '
+    'img[data-lazy-src*="images.zaimanhua.com"], '
+    'source[srcset*="images.zaimanhua.com"], '
+    'source[data-srcset*="images.zaimanhua.com"]'
+)
+RENDERED_IMAGE_SNAPSHOT_SCRIPT = """
+() => {
+  const values = [];
+  const append = value => {
+    if (!value) {
+      return;
+    }
+    const text = String(value).trim();
+    if (!text) {
+      return;
+    }
+    text.split(",").forEach(item => {
+      const url = item.trim().split(/\\s+/, 1)[0];
+      if (url) {
+        values.push(url);
+      }
+    });
+  };
+  document.querySelectorAll("img, source").forEach(node => {
+    append(node.currentSrc);
+    [
+      "src",
+      "data-src",
+      "data-original",
+      "data-url",
+      "data-image",
+      "data-lazy-src",
+      "srcset",
+      "data-srcset"
+    ].forEach(name => append(node.getAttribute(name)));
+  });
+  return Array.from(new Set(values));
+}
+"""
 
 
 class AuthSessionError(RuntimeError):
@@ -133,6 +183,13 @@ class AuthenticatedBrowserHtmlFetcher:
         timeout_seconds: float = 20,
         render_wait_seconds: float = 5,
         render_ready_selector: str | None = CHAPTER_LINK_SELECTOR,
+        render_scroll_to_bottom: bool = False,
+        render_scroll_max_seconds: float = 20,
+        render_scroll_min_rounds: int = 0,
+        render_scroll_step_px: int = 1200,
+        render_scroll_pause_seconds: float = 0.25,
+        render_image_snapshot: bool = False,
+        render_click_texts: tuple[str, ...] = (),
         request_delay_seconds: float | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
@@ -146,6 +203,13 @@ class AuthenticatedBrowserHtmlFetcher:
         self.timeout_seconds = timeout_seconds
         self.render_wait_seconds = render_wait_seconds
         self.render_ready_selector = render_ready_selector
+        self.render_scroll_to_bottom = render_scroll_to_bottom
+        self.render_scroll_max_seconds = render_scroll_max_seconds
+        self.render_scroll_min_rounds = render_scroll_min_rounds
+        self.render_scroll_step_px = render_scroll_step_px
+        self.render_scroll_pause_seconds = render_scroll_pause_seconds
+        self.render_image_snapshot = render_image_snapshot
+        self.render_click_texts = render_click_texts
         self.request_delay_seconds = (
             request_delay_seconds
             if request_delay_seconds is not None
@@ -210,6 +274,12 @@ class AuthenticatedBrowserHtmlFetcher:
                     user_agent=self.user_agent,
                 )
                 page = context.new_page()
+                rendered_image_values: list[str] = []
+                if self.render_image_snapshot:
+                    page.on("response", lambda response: _record_image_response(
+                        response,
+                        rendered_image_values,
+                    ))
                 try:
                     response = page.goto(
                         url,
@@ -224,6 +294,12 @@ class AuthenticatedBrowserHtmlFetcher:
                         )
                     except PlaywrightTimeoutError:
                         pass
+                    if self.render_click_texts:
+                        self._click_render_texts(
+                            page,
+                            PlaywrightTimeoutError,
+                            timeout_ms=render_timeout_ms,
+                        )
                     if self.render_ready_selector:
                         try:
                             page.wait_for_selector(
@@ -232,6 +308,12 @@ class AuthenticatedBrowserHtmlFetcher:
                             )
                         except PlaywrightTimeoutError:
                             pass
+                    if self.render_scroll_to_bottom:
+                        self._scroll_to_bottom(
+                            page,
+                            PlaywrightTimeoutError,
+                            rendered_image_values=rendered_image_values,
+                        )
                     status_code = int(response.status) if response is not None else 200
                     headers = response.headers if response is not None else {}
                     content_type = str(headers.get("content-type", "text/html"))
@@ -245,11 +327,18 @@ class AuthenticatedBrowserHtmlFetcher:
                         raise NonHtmlContentError(
                             f"Expected HTML response, got {content_type or 'unknown'}"
                         )
+                    html = page.content()
+                    if self.render_image_snapshot:
+                        html = _append_rendered_image_snapshot(
+                            page,
+                            html,
+                            extra_values=rendered_image_values,
+                        )
                     return FetchedHtml(
                         url=url,
                         status_code=status_code,
                         content_type=content_type,
-                        text=page.content(),
+                        text=html,
                     )
                 finally:
                     context.close()
@@ -260,6 +349,137 @@ class AuthenticatedBrowserHtmlFetcher:
             raise AuthSessionError(f"authenticated sync timed out: {error}") from error
         except PlaywrightError as error:
             raise AuthSessionError(f"authenticated sync failed: {error}") from error
+
+    def _click_render_texts(
+        self,
+        page,
+        timeout_error_type: type[Exception],
+        *,
+        timeout_ms: int,
+    ) -> None:
+        for text in self.render_click_texts:
+            try:
+                page.get_by_text(text, exact=True).first.click(timeout=timeout_ms)
+            except timeout_error_type:
+                try:
+                    page.get_by_text(text, exact=False).first.click(timeout=1000)
+                except timeout_error_type:
+                    continue
+            try:
+                page.wait_for_load_state("networkidle", timeout=timeout_ms)
+            except timeout_error_type:
+                pass
+
+    def _scroll_to_bottom(
+        self,
+        page,
+        timeout_error_type: type[Exception],
+        *,
+        rendered_image_values: list[str],
+    ) -> None:
+        deadline = self._monotonic() + max(0.0, self.render_scroll_max_seconds)
+        min_rounds = max(0, int(self.render_scroll_min_rounds))
+        step_px = max(1, int(self.render_scroll_step_px))
+        pause_ms = max(0, int(self.render_scroll_pause_seconds * 1000))
+        stable_rounds = 0
+        previous_signature: tuple[int, int, int] | None = None
+        rounds = 0
+
+        while True:
+            rounds += 1
+            page.mouse.move(640, 360)
+            page.mouse.wheel(0, step_px)
+            page.evaluate("(step) => window.scrollBy(0, step)", step_px)
+            if pause_ms:
+                page.wait_for_timeout(pause_ms)
+            try:
+                page.wait_for_load_state("networkidle", timeout=1000)
+            except timeout_error_type:
+                pass
+            rendered_image_values.extend(_rendered_image_values(page))
+
+            metrics = page.evaluate(
+                """
+                selector => {
+                  const root = document.documentElement;
+                  const body = document.body || root;
+                  const height = Math.max(
+                    root.scrollHeight,
+                    body.scrollHeight,
+                    root.offsetHeight,
+                    body.offsetHeight,
+                    root.clientHeight
+                  );
+                  const viewport = window.innerHeight || root.clientHeight || 0;
+                  const y = window.scrollY || window.pageYOffset || 0;
+                  const count = selector
+                    ? document.querySelectorAll(selector).length
+                    : document.querySelectorAll("img, source").length;
+                  return {
+                    scrollHeight: height,
+                    viewportHeight: viewport,
+                    scrollY: y,
+                    imageCount: count
+                  };
+                }
+                """,
+                self.render_ready_selector,
+            )
+            signature = (
+                int(metrics["scrollHeight"]),
+                int(metrics["scrollY"]),
+                len(set(rendered_image_values)) or int(metrics["imageCount"]),
+            )
+            at_bottom = (
+                int(metrics["scrollY"]) + int(metrics["viewportHeight"])
+                >= int(metrics["scrollHeight"]) - 2
+            )
+            if at_bottom and previous_signature == signature:
+                stable_rounds += 1
+            else:
+                stable_rounds = 0
+            if at_bottom and stable_rounds >= 2 and rounds >= min_rounds:
+                break
+            if self._monotonic() >= deadline:
+                break
+            previous_signature = signature
+
+
+def _append_rendered_image_snapshot(
+    page,
+    html: str,
+    *,
+    extra_values: list[str],
+) -> str:
+    image_values = extra_values + _rendered_image_values(page)
+    image_values = [value for value in dict.fromkeys(image_values) if value]
+    if not image_values:
+        return html
+    snapshot = json.dumps(image_values, ensure_ascii=False)
+    return (
+        f"{html}\n"
+        f"<script type=\"application/json\">"
+        f"window.__PANELSCOUT_CHAPTER_IMAGES__ = {snapshot};"
+        f"</script>"
+    )
+
+
+def _rendered_image_values(page) -> list[str]:
+    raw_values = page.evaluate(RENDERED_IMAGE_SNAPSHOT_SCRIPT)
+    if not isinstance(raw_values, list):
+        return []
+    return [str(value).strip() for value in raw_values if str(value).strip()]
+
+
+def _record_image_response(response, image_values: list[str]) -> None:
+    try:
+        content_type = str(response.headers.get("content-type", ""))
+        if content_type.lower().startswith("image/") or IMAGE_URL_PATTERN.search(
+            response.url
+        ):
+            image_values.append(response.url)
+    except Exception:
+        return
 
 
 def _host_key(url: str) -> str:

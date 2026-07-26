@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.34
+Version: 0.35
 
 Date: 2026-07-26
 
@@ -253,6 +253,7 @@ Current baseline:
 - Unit 32 adds a default-skipped live authenticated smoke test harness that reads credentials only from `.env.local` or process environment when `PANELSCOUT_LIVE_AUTH=1`.
 - Unit 33 wires `search --auth` and `download plan/run --auth` to the saved storage-state file for JavaScript-rendered search and chapter-page rendering.
 - Unit 34 wires the interactive local UI search, sync, download plan, and download run requests to the same authenticated fetcher path when the `登录会话` switch is enabled.
+- Unit 35 switches supported authenticated reader pages to `滚动阅读`, scrolls through lazy-loaded content, and snapshots rendered DOM/network image URLs before chapter image discovery.
 - Authenticated download page rendering filters out reader chrome, logos, and layout images before planning files, then keeps image byte fetching on the existing conservative fetcher.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
 - Public search/download workflows remain available when auth is disabled.
@@ -491,6 +492,7 @@ MVP 5 has started after the anonymous/public minimum search-to-download line rea
 - Authenticated metadata sync. Status: detail sync reuse baseline completed in Unit 31.
 - Authenticated search and chapter-page rendering. Status: CLI baseline completed in Unit 33.
 - Authenticated local UI reuse. Status: interactive UI/API baseline completed in Unit 34.
+- Authenticated lazy-loaded reader discovery. Status: scroll-reader baseline completed in Unit 35.
 - Automatic pause on expired or blocked sessions.
 - Session file gitignore rules. Status: baseline completed before Unit 30.
 
@@ -615,18 +617,18 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 34.
+Current accepted range: Unit 1 through Unit 35.
 
-Latest accepted Unit: Unit 34, Authenticated Local UI Reuse.
+Latest accepted Unit: Unit 35, Authenticated Scroll Reader Image Discovery.
 
 High-level milestone status:
 
 - MVP 1: Project skeleton, SQLite storage, exporters, anonymous parser fixtures, robots policy, fetcher baseline, public search workflow, and safe CLI search integration are accepted.
 - MVP 2: Public detail sync, chapter metadata upsert, safe CLI sync integration, richer sync result, and report output are accepted. Authenticated Session Mode remains deferred to MVP 5.
 - MVP 3: Local watchlist, public watch update checks, Markdown watch reports, and local suggested watch schedule baseline are accepted.
-- Minimum search-to-download line: Search, save, detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level for public mode and at live-smoke level for authenticated mode.
+- Minimum search-to-download line: Search, save, detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level for public mode and at live-smoke level for authenticated mode, including lazy-loaded scroll-reader chapters.
 - MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, UI command bridge, local-only UI runner/API, UI search/save, UI detail/chapter sync, UI download plan/run, and UI download status read are accepted at fixture-test level.
-- MVP 5: Authenticated Session Mode has accepted login capture/status/logout, authenticated sync, authenticated search, authenticated chapter-page rendering, and authenticated local UI reuse baselines. Server-side validation and recovery UX remain pending.
+- MVP 5: Authenticated Session Mode has accepted login capture/status/logout, authenticated sync, authenticated search, authenticated chapter-page rendering, authenticated local UI reuse, and scroll-reader lazy image discovery baselines. Server-side validation and recovery UX remain pending.
 
 ## 16. Next Unit Plan
 
@@ -646,7 +648,8 @@ Planned next Units:
 - Unit 32: Live auth smoke env harness. Status: accepted.
 - Unit 33: Authenticated search-to-download live smoke. Status: accepted.
 - Unit 34: Authenticated local UI/API reuse. Status: accepted.
-- Unit 35: UI business-flow hardening: clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks.
+- Unit 35: Authenticated scroll-reader image discovery. Status: accepted.
+- Unit 36: UI business-flow hardening: clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks.
 
 ## 17. Open Questions
 

@@ -61,6 +61,34 @@ class ChapterImageDiscoveryTests(unittest.TestCase):
             "https://images.zaimanhua.com/w%2Fcomic%2F001.jpg",
         )
 
+    def test_reads_rendered_browser_image_snapshot_marker(self):
+        html = """
+        <html><body>
+        <script type="application/json">
+        window.__PANELSCOUT_CHAPTER_IMAGES__ = [
+          "https://images.zaimanhua.com/comic/15599/112/001.jpg",
+          "https://images.zaimanhua.com/comic/15599/112/002.jpg",
+          "https://images.zaimanhua.com/comic/15599/112/001.jpg",
+          "https://static.zaimanhua.com/reader/chrome.png"
+        ];
+        </script>
+        </body></html>
+        """
+
+        images = parse_public_chapter_images(
+            html,
+            chapter_url="https://manhua.zaimanhua.com/view/15599/112.html",
+        )
+
+        self.assertEqual([image.page_number for image in images], [1, 2])
+        self.assertEqual(
+            [image.source_url for image in images],
+            [
+                "https://images.zaimanhua.com/comic/15599/112/001.jpg",
+                "https://images.zaimanhua.com/comic/15599/112/002.jpg",
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

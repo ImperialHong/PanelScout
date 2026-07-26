@@ -2,6 +2,7 @@
 
 from panelscout.auth.session import (
     AUTH_SESSION_STATUS_STORED,
+    CHAPTER_IMAGE_RENDER_SELECTOR,
     DEFAULT_AUTH_STORAGE_BACKEND,
     AuthenticatedBrowserHtmlFetcher,
     AuthSessionError,
@@ -14,6 +15,7 @@ from panelscout.auth.session import (
 
 __all__ = [
     "AUTH_SESSION_STATUS_STORED",
+    "CHAPTER_IMAGE_RENDER_SELECTOR",
     "DEFAULT_AUTH_STORAGE_BACKEND",
     "AuthenticatedBrowserHtmlFetcher",
     "AuthSessionError",
