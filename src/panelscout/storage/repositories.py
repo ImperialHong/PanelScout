@@ -7,7 +7,13 @@ import json
 import sqlite3
 from typing import Iterable
 
-from panelscout.storage.models import Chapter, Comic, WatchCheckSchedule, WatchlistEntry
+from panelscout.storage.models import (
+    AuthSession,
+    Chapter,
+    Comic,
+    WatchCheckSchedule,
+    WatchlistEntry,
+)
 
 
 class ComicRepository:
@@ -456,6 +462,90 @@ class ComicRepository:
         self.connection.commit()
         return self.get_watch_check_schedule(source)
 
+    def upsert_auth_session(self, session: AuthSession) -> AuthSession:
+        """Insert or update local authenticated browser-session metadata.
+
+        Only storage-state metadata is persisted here. Plaintext usernames,
+        passwords, or other credentials must never be represented by this
+        model or written to the database.
+        """
+
+        now = _utc_now()
+        values = {
+            "source": session.source,
+            "storage_backend": session.storage_backend,
+            "session_path": session.session_path,
+            "created_at": session.created_at or now,
+            "last_validated_at": session.last_validated_at,
+            "expires_hint": session.expires_hint,
+            "status": session.status,
+            "warning_acknowledged_at": session.warning_acknowledged_at,
+        }
+        self.connection.execute(
+            """
+            INSERT INTO auth_sessions (
+                source,
+                storage_backend,
+                session_path,
+                created_at,
+                last_validated_at,
+                expires_hint,
+                status,
+                warning_acknowledged_at
+            )
+            VALUES (
+                :source,
+                :storage_backend,
+                :session_path,
+                :created_at,
+                :last_validated_at,
+                :expires_hint,
+                :status,
+                :warning_acknowledged_at
+            )
+            ON CONFLICT(source) DO UPDATE SET
+                storage_backend = excluded.storage_backend,
+                session_path = excluded.session_path,
+                last_validated_at = excluded.last_validated_at,
+                expires_hint = excluded.expires_hint,
+                status = excluded.status,
+                warning_acknowledged_at = excluded.warning_acknowledged_at
+            """,
+            values,
+        )
+        self.connection.commit()
+
+        stored = self.get_auth_session(session.source)
+        if stored is None:
+            raise StorageError("Auth session upsert succeeded but no record could be loaded")
+        return stored
+
+    def get_auth_session(self, source: str) -> AuthSession | None:
+        """Load authenticated-session metadata for a source."""
+
+        row = self.connection.execute(
+            """
+            SELECT *
+            FROM auth_sessions
+            WHERE source = ?
+            """,
+            (source,),
+        ).fetchone()
+        return _auth_session_from_row(row) if row is not None else None
+
+    def delete_auth_session(self, source: str) -> bool:
+        """Delete authenticated-session metadata for a source."""
+
+        cursor = self.connection.execute(
+            """
+            DELETE FROM auth_sessions
+            WHERE source = ?
+            """,
+            (source,),
+        )
+        self.connection.commit()
+        return cursor.rowcount > 0
+
 
 class StorageError(RuntimeError):
     """Raised when storage operations produce an unexpected state."""
@@ -515,6 +605,20 @@ def _watch_check_schedule_from_row(row: sqlite3.Row) -> WatchCheckSchedule:
         last_run_at=row["last_run_at"],
         next_run_at=row["next_run_at"],
         updated_at=row["updated_at"],
+    )
+
+
+def _auth_session_from_row(row: sqlite3.Row) -> AuthSession:
+    return AuthSession(
+        id=row["id"],
+        source=row["source"],
+        storage_backend=row["storage_backend"],
+        session_path=row["session_path"],
+        created_at=row["created_at"],
+        last_validated_at=row["last_validated_at"],
+        expires_hint=row["expires_hint"],
+        status=row["status"],
+        warning_acknowledged_at=row["warning_acknowledged_at"],
     )
 
 

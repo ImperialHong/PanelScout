@@ -1,8 +1,8 @@
 # PanelScout Design Document
 
-Version: 0.27
+Version: 0.31
 
-Date: 2026-07-20
+Date: 2026-07-26
 
 Chinese name: 格探
 
@@ -234,10 +234,21 @@ This mode must be implemented as local browser-based login, not credential colle
 
 Recommended command flow:
 
-- `panelscout auth login zaimanhua`: Open a local Playwright browser window and let the user log in manually.
+- `panelscout auth login zaimanhua --acknowledge-local-session-storage`: Open a local Playwright browser window and let the user log in manually.
 - `panelscout auth status zaimanhua`: Check whether a saved session still appears valid.
 - `panelscout auth logout zaimanhua`: Delete the saved local session.
-- `panelscout sync --auth zaimanhua`: Reuse the saved session for metadata and chapter sync.
+- `panelscout sync 15599 --auth [zaimanhua] --save`: Reuse the saved session for metadata and chapter sync.
+
+Current baseline:
+
+- Unit 30 starts Authenticated Session Mode with `panelscout auth login/status/logout`.
+- `auth login` requires explicit acknowledgement that local storage-state files contain sensitive cookies/session data.
+- `auth login` uses optional Playwright browser capture when the auth extra is installed; it never asks for usernames or passwords.
+- `auth status` currently reads local metadata and whether the storage-state file exists. Server-side validation is not wired yet.
+- `auth logout` deletes the recorded local storage-state file and SQLite session metadata.
+- Unit 31 wires `sync --auth` to the saved storage-state file through an optional Playwright authenticated HTML fetcher.
+- Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
+- Public search/download workflows remain anonymous unless a later unit explicitly wires safe session reuse for those paths.
 
 Rules:
 
@@ -354,6 +365,7 @@ Generate update report
 ## 9. Authenticated Crawl Flow
 
 This flow belongs to MVP 5. MVP 2 detail sync must remain anonymous/public-only.
+Unit 30 implements the login capture/status/logout baseline. Unit 31 adds authenticated detail sync reuse for saved browser storage state.
 
 ```text
 User runs auth login
@@ -462,14 +474,14 @@ MVP 4 current implementation note:
 
 ### MVP 5: Authenticated Session Mode
 
-MVP 5 remains deferred until the anonymous/public minimum search-to-download line is complete.
+MVP 5 has started after the anonymous/public minimum search-to-download line reached the local UI.
 
-- `auth login` command using Playwright.
-- Local session storage.
-- Session status validation.
-- Authenticated metadata sync.
+- `auth login` command using optional Playwright. Status: baseline completed in Unit 30.
+- Local session storage. Status: baseline completed in Unit 30.
+- Session status readout. Status: local metadata/file status completed in Unit 30; server validation pending.
+- Authenticated metadata sync. Status: detail sync reuse baseline completed in Unit 31.
 - Automatic pause on expired or blocked sessions.
-- Session file gitignore rules.
+- Session file gitignore rules. Status: baseline completed before Unit 30.
 
 ## 11. Suggested Technology Stack
 

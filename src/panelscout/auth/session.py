@@ -1,0 +1,250 @@
+"""Local browser-session helpers for authenticated mode.
+
+The helpers in this module never accept plaintext usernames or passwords.
+Login must happen in a local browser controlled by the user, and only browser
+storage state is saved for later authenticated requests.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+import time
+from typing import Callable
+from urllib.parse import urlparse
+
+from panelscout.adapters.zaimanhua import PUBLIC_BASE_URL, SOURCE_NAME
+from panelscout.config import PanelScoutConfig
+from panelscout.crawler.fetcher import (
+    FetchBlockedError,
+    FetchHTTPError,
+    FetchedHtml,
+    NonHtmlContentError,
+)
+from panelscout.crawler.robots import RobotsPolicy
+
+
+DEFAULT_AUTH_STORAGE_BACKEND = "playwright_storage_state"
+AUTH_SESSION_STATUS_STORED = "stored"
+BLOCKED_STATUSES = {401, 403, 429}
+HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+
+
+class AuthSessionError(RuntimeError):
+    """Raised when local authenticated-session capture fails."""
+
+
+class AuthSessionUnavailableError(AuthSessionError):
+    """Raised when optional browser-login dependencies are unavailable."""
+
+
+@dataclass(frozen=True, kw_only=True)
+class BrowserLoginResult:
+    """Result from a user-driven local browser login capture."""
+
+    source: str
+    session_path: Path
+    storage_backend: str = DEFAULT_AUTH_STORAGE_BACKEND
+    status: str = AUTH_SESSION_STATUS_STORED
+
+
+def default_auth_session_path(config: PanelScoutConfig, source: str) -> Path:
+    """Return the configured local browser storage-state path for a source."""
+
+    return config.session_dir / f"{source}.storage.json"
+
+
+def auth_start_url(source: str) -> str:
+    """Return a conservative start URL for manual source login."""
+
+    if source != SOURCE_NAME:
+        raise ValueError(f"unsupported auth source: {source}")
+    return PUBLIC_BASE_URL
+
+
+def run_manual_browser_login(
+    *,
+    source: str,
+    start_url: str,
+    session_path: str | Path,
+    input_func: Callable[[str], str] = input,
+) -> BrowserLoginResult:
+    """Open a local browser, let the user log in, then save storage state."""
+
+    if source != SOURCE_NAME:
+        raise ValueError(f"unsupported auth source: {source}")
+    if not start_url.strip():
+        raise ValueError("auth login start URL cannot be blank")
+
+    path = Path(session_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _capture_playwright_storage_state(
+        start_url=start_url.strip(),
+        session_path=path,
+        input_func=input_func,
+    )
+    if not path.exists():
+        raise AuthSessionError("browser login did not create a session storage file")
+
+    return BrowserLoginResult(source=source, session_path=path)
+
+
+def _capture_playwright_storage_state(
+    *,
+    start_url: str,
+    session_path: Path,
+    input_func: Callable[[str], str],
+) -> None:
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import sync_playwright
+    except ImportError as error:
+        raise AuthSessionUnavailableError(
+            "Playwright is not installed. Install the optional auth dependencies "
+            "and run `playwright install chromium`, then retry auth login."
+        ) from error
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=False)
+            context = browser.new_context()
+            page = context.new_page()
+            page.goto(start_url, wait_until="domcontentloaded")
+            input_func(
+                "请在打开的本地浏览器中手动登录。完成登录和验证码后按 Enter 保存会话。"
+            )
+            context.storage_state(path=str(session_path))
+            context.close()
+            browser.close()
+    except PlaywrightError as error:
+        raise AuthSessionError(f"browser login failed: {error}") from error
+
+
+class AuthenticatedBrowserHtmlFetcher:
+    """Fetch HTML with a saved user-driven Playwright storage state."""
+
+    def __init__(
+        self,
+        *,
+        config: PanelScoutConfig,
+        session_path: str | Path,
+        robots_policy: RobotsPolicy | None = None,
+        timeout_seconds: float = 20,
+        request_delay_seconds: float | None = None,
+        sleeper: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self.config = config
+        self.user_agent = config.user_agent
+        self.session_path = Path(session_path).expanduser()
+        if not self.session_path.exists():
+            raise AuthSessionError(f"auth session file missing: {self.session_path}")
+        self.robots_policy = robots_policy
+        self.timeout_seconds = timeout_seconds
+        self.request_delay_seconds = (
+            request_delay_seconds
+            if request_delay_seconds is not None
+            else config.request_delay_seconds
+        )
+        self._sleep = sleeper
+        self._monotonic = monotonic
+        self._last_fetch_by_host: dict[str, float] = {}
+
+    def fetch_html(self, url: str) -> FetchedHtml:
+        """Fetch URL text with saved local session state and robots checks."""
+
+        if self.robots_policy is not None:
+            self.robots_policy.assert_allowed(url, user_agent=self.user_agent)
+
+        self._respect_delay(url)
+        fetched = self._fetch_with_playwright(url)
+        self._last_fetch_by_host[_host_key(url)] = self._monotonic()
+        return fetched
+
+    def crawl_delay(self) -> float:
+        robots_delay = (
+            self.robots_policy.crawl_delay(user_agent=self.user_agent)
+            if self.robots_policy is not None
+            else None
+        )
+        if robots_delay is not None:
+            return robots_delay
+        return float(self.request_delay_seconds or 0)
+
+    def _respect_delay(self, url: str) -> None:
+        delay = self.crawl_delay()
+        if delay <= 0:
+            return
+
+        host = _host_key(url)
+        last_fetch_at = self._last_fetch_by_host.get(host)
+        if last_fetch_at is None:
+            return
+
+        elapsed = self._monotonic() - last_fetch_at
+        remaining = delay - elapsed
+        if remaining > 0:
+            self._sleep(remaining)
+
+    def _fetch_with_playwright(self, url: str) -> FetchedHtml:
+        try:
+            from playwright.sync_api import Error as PlaywrightError
+            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+            from playwright.sync_api import sync_playwright
+        except ImportError as error:
+            raise AuthSessionUnavailableError(
+                "Playwright is not installed. Install the optional auth dependencies "
+                "and run `playwright install chromium`, then retry authenticated sync."
+            ) from error
+
+        try:
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True)
+                context = browser.new_context(
+                    storage_state=str(self.session_path),
+                    user_agent=self.user_agent,
+                )
+                page = context.new_page()
+                try:
+                    response = page.goto(
+                        url,
+                        wait_until="domcontentloaded",
+                        timeout=int(self.timeout_seconds * 1000),
+                    )
+                    status_code = int(response.status) if response is not None else 200
+                    headers = response.headers if response is not None else {}
+                    content_type = str(headers.get("content-type", "text/html"))
+                    if status_code in BLOCKED_STATUSES:
+                        raise FetchBlockedError(
+                            f"Server blocked authenticated request with status {status_code}"
+                        )
+                    if status_code >= 400:
+                        raise FetchHTTPError(f"HTTP error {status_code}")
+                    if not _is_html_content_type(content_type):
+                        raise NonHtmlContentError(
+                            f"Expected HTML response, got {content_type or 'unknown'}"
+                        )
+                    return FetchedHtml(
+                        url=url,
+                        status_code=status_code,
+                        content_type=content_type,
+                        text=page.content(),
+                    )
+                finally:
+                    context.close()
+                    browser.close()
+        except (FetchBlockedError, FetchHTTPError, NonHtmlContentError):
+            raise
+        except PlaywrightTimeoutError as error:
+            raise AuthSessionError(f"authenticated sync timed out: {error}") from error
+        except PlaywrightError as error:
+            raise AuthSessionError(f"authenticated sync failed: {error}") from error
+
+
+def _host_key(url: str) -> str:
+    return urlparse(url).netloc.lower()
+
+
+def _is_html_content_type(content_type: str) -> bool:
+    normalized = content_type.split(";", 1)[0].strip().lower()
+    return normalized in HTML_CONTENT_TYPES

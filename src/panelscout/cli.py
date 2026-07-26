@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 import json
 from pathlib import Path
 import sys
@@ -10,6 +11,14 @@ from typing import Sequence
 
 from panelscout import __version__
 from panelscout.adapters.zaimanhua import SOURCE_NAME, build_robots_url
+from panelscout.auth import (
+    AuthenticatedBrowserHtmlFetcher,
+    AuthSessionError,
+    BrowserLoginResult,
+    auth_start_url,
+    default_auth_session_path,
+    run_manual_browser_login,
+)
 from panelscout.config import ConfigError, load_config
 from panelscout.crawler import (
     FetchError,
@@ -33,7 +42,7 @@ from panelscout.exporters import (
     export_comics_markdown,
     export_watch_check_markdown,
 )
-from panelscout.storage import ComicRepository, StorageError, connect_database
+from panelscout.storage import AuthSession, ComicRepository, StorageError, connect_database
 from panelscout.ui import (
     build_local_ui_state,
     serve_local_ui,
@@ -95,7 +104,64 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Save synced details and chapters to the configured SQLite database.",
     )
+    sync_parser.add_argument(
+        "--auth",
+        nargs="?",
+        const=True,
+        default=False,
+        help="Use a saved local authenticated browser session. Optionally pass source.",
+    )
     sync_parser.set_defaults(handler=_handle_sync)
+
+    auth_parser = subparsers.add_parser(
+        "auth",
+        help="Manage local authenticated browser sessions.",
+    )
+    auth_subparsers = auth_parser.add_subparsers(dest="auth_command")
+    auth_login = auth_subparsers.add_parser(
+        "login",
+        help="Open a local browser for user-driven login and save storage state.",
+    )
+    auth_login.add_argument(
+        "source",
+        nargs="?",
+        help="Source adapter to log in to. Defaults to the configured source.",
+    )
+    auth_login.add_argument(
+        "--session-path",
+        help="Storage-state JSON path. Defaults to the configured session_dir.",
+    )
+    auth_login.add_argument(
+        "--start-url",
+        help="Optional source URL to open for manual login.",
+    )
+    auth_login.add_argument(
+        "--acknowledge-local-session-storage",
+        action="store_true",
+        help="Confirm that the local storage-state file contains sensitive cookies.",
+    )
+    auth_login.set_defaults(handler=_handle_auth_login)
+    auth_status = auth_subparsers.add_parser(
+        "status",
+        help="Show local authenticated-session metadata.",
+    )
+    auth_status.add_argument(
+        "source",
+        nargs="?",
+        help="Source adapter to inspect. Defaults to the configured source.",
+    )
+    auth_status.set_defaults(handler=_handle_auth_status)
+    auth_logout = auth_subparsers.add_parser(
+        "logout",
+        help="Delete local authenticated-session metadata and storage state.",
+    )
+    auth_logout.add_argument(
+        "source",
+        nargs="?",
+        help="Source adapter to log out from. Defaults to the configured source.",
+    )
+    auth_logout.set_defaults(handler=_handle_auth_logout)
+    auth_parser.set_defaults(handler=_handle_auth_help)
 
     watch_parser = subparsers.add_parser("watch", help="Manage watched comics.")
     watch_subparsers = watch_parser.add_subparsers(dest="watch_command")
@@ -302,6 +368,7 @@ def main(
     *,
     search_fetcher_factory=None,
     sync_fetcher_factory=None,
+    auth_login_runner=None,
     download_fetcher_factory=None,
     image_fetcher_factory=None,
     ui_server_factory=None,
@@ -323,6 +390,12 @@ def main(
             args.search_fetcher_factory = search_fetcher_factory
         if args.command == "sync" and sync_fetcher_factory is not None:
             args.sync_fetcher_factory = sync_fetcher_factory
+        if (
+            args.command == "auth"
+            and getattr(args, "auth_command", None) == "login"
+            and auth_login_runner is not None
+        ):
+            args.auth_login_runner = auth_login_runner
         if (
             args.command == "watch"
             and getattr(args, "watch_command", None) == "check"
@@ -417,6 +490,20 @@ def _handle_sync(args: argparse.Namespace, config) -> int:
     if source != SOURCE_NAME:
         print(f"panelscout: unsupported sync source '{source}'", file=sys.stderr)
         return 1
+    try:
+        auth_source = _sync_auth_source(args, source)
+    except AuthSessionError as error:
+        print(f"panelscout: auth sync unavailable: {error}", file=sys.stderr)
+        return 1
+    if auth_source is not None and auth_source != source:
+        print(
+            f"panelscout: sync auth source '{auth_source}' does not match sync source '{source}'",
+            file=sys.stderr,
+        )
+        return 1
+    if auth_source is not None and auth_source != SOURCE_NAME:
+        print(f"panelscout: unsupported auth source '{auth_source}'", file=sys.stderr)
+        return 1
 
     try:
         normalize_detail_reference(reference)
@@ -424,7 +511,23 @@ def _handle_sync(args: argparse.Namespace, config) -> int:
         print(f"panelscout: sync reference invalid: {error}", file=sys.stderr)
         return 1
 
-    factory = getattr(args, "sync_fetcher_factory", None) or _create_sync_fetcher
+    session = None
+    if auth_source is not None:
+        try:
+            session = _require_auth_session(config, auth_source)
+        except AuthSessionError as error:
+            print(f"panelscout: auth sync unavailable: {error}", file=sys.stderr)
+            return 1
+
+    factory = getattr(args, "sync_fetcher_factory", None)
+    if factory is None:
+        if session is not None:
+            factory = lambda runtime_config: _create_authenticated_sync_fetcher(
+                runtime_config,
+                session,
+            )
+        else:
+            factory = _create_sync_fetcher
     try:
         fetcher = factory(config)
         database_path = config.database_path if args.save else ":memory:"
@@ -443,12 +546,154 @@ def _handle_sync(args: argparse.Namespace, config) -> int:
     except FetchError as error:
         print(f"panelscout: sync fetch failed: {error}", file=sys.stderr)
         return 1
+    except AuthSessionError as error:
+        print(f"panelscout: auth sync failed: {error}", file=sys.stderr)
+        return 1
     except ValueError as error:
         print(f"panelscout: sync failed: {error}", file=sys.stderr)
         return 1
 
-    print(_format_sync_result(result, saved=args.save))
+    print(
+        _format_sync_result(
+            result,
+            saved=args.save,
+            auth_source=auth_source,
+            auth_status=session.status if session is not None else None,
+        )
+    )
     return 0
+
+
+def _handle_auth_help(args: argparse.Namespace, config) -> int:
+    print("panelscout auth login [SOURCE] --acknowledge-local-session-storage")
+    print("panelscout auth status [SOURCE]")
+    print("panelscout auth logout [SOURCE]")
+    print("Login is user-driven in a local browser; PanelScout never stores plaintext passwords.")
+    return 0
+
+
+def _handle_auth_login(args: argparse.Namespace, config) -> int:
+    source = _auth_source_from_args(args, config)
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported auth source '{source}'", file=sys.stderr)
+        return 1
+
+    if not args.acknowledge_local_session_storage:
+        print(
+            "panelscout: auth login requires --acknowledge-local-session-storage "
+            "because browser storage state contains sensitive cookies/session data",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        start_url = (args.start_url or auth_start_url(source)).strip()
+        session_path = _auth_session_path_from_args(args, config, source)
+    except ValueError as error:
+        print(f"panelscout: auth login failed: {error}", file=sys.stderr)
+        return 1
+
+    runner = getattr(args, "auth_login_runner", None) or run_manual_browser_login
+    try:
+        result = runner(
+            source=source,
+            start_url=start_url,
+            session_path=session_path,
+        )
+        if result is None:
+            result = BrowserLoginResult(source=source, session_path=session_path)
+        stored_path = Path(result.session_path).expanduser()
+        if not stored_path.exists():
+            raise AuthSessionError("browser login did not create a session storage file")
+        with connect_database(config.database_path) as connection:
+            session = ComicRepository(connection).upsert_auth_session(
+                AuthSession(
+                    source=source,
+                    storage_backend=result.storage_backend,
+                    session_path=str(stored_path),
+                    status=result.status,
+                    warning_acknowledged_at=_utc_now_string(),
+                )
+            )
+    except (AuthSessionError, OSError, ValueError) as error:
+        print(f"panelscout: auth login failed: {error}", file=sys.stderr)
+        return 1
+
+    print(f"Auth session stored: {session.source}")
+    print(f"Status: {session.status} (not server-validated)")
+    print(f"Session file: {session.session_path}")
+    print(f"Storage backend: {session.storage_backend}")
+    print("PanelScout did not receive or store your username or password.")
+    return 0
+
+
+def _handle_auth_status(args: argparse.Namespace, config) -> int:
+    source = _auth_source_from_args(args, config)
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported auth source '{source}'", file=sys.stderr)
+        return 1
+
+    session = _load_auth_session_without_creating_database(config, source)
+    print(_format_auth_status(session, source=source))
+    return 0
+
+
+def _handle_auth_logout(args: argparse.Namespace, config) -> int:
+    source = _auth_source_from_args(args, config)
+    if source != SOURCE_NAME:
+        print(f"panelscout: unsupported auth source '{source}'", file=sys.stderr)
+        return 1
+
+    database_path = Path(config.database_path).expanduser()
+    if str(config.database_path) != ":memory:" and not database_path.exists():
+        print(f"No auth session configured for {source}.")
+        return 0
+
+    try:
+        with connect_database(config.database_path) as connection:
+            repository = ComicRepository(connection)
+            session = repository.get_auth_session(source)
+            if session is None:
+                print(f"No auth session configured for {source}.")
+                return 0
+
+            deleted_file: Path | None = None
+            missing_file: Path | None = None
+            if session.session_path:
+                session_file = Path(session.session_path).expanduser()
+                if session_file.exists():
+                    session_file.unlink()
+                    deleted_file = session_file
+                else:
+                    missing_file = session_file
+
+            repository.delete_auth_session(source)
+    except OSError as error:
+        print(f"panelscout: auth logout failed: {error}", file=sys.stderr)
+        return 1
+
+    print(f"Auth session removed: {source}")
+    if deleted_file is not None:
+        print(f"Deleted session file: {deleted_file}")
+    elif missing_file is not None:
+        print(f"Session file was already missing: {missing_file}")
+    else:
+        print("No session file was recorded.")
+    return 0
+
+
+def _create_authenticated_sync_fetcher(config, session: AuthSession):
+    if not session.session_path:
+        raise AuthSessionError("auth session metadata has no session file path")
+    robots_policy = load_robots_policy(
+        build_robots_url(),
+        user_agent=config.user_agent,
+    )
+    return AuthenticatedBrowserHtmlFetcher(
+        config=config,
+        session_path=session.session_path,
+        robots_policy=robots_policy,
+    )
 
 
 def _create_search_fetcher(config):
@@ -500,13 +745,22 @@ def _format_search_result(result, *, saved: bool) -> str:
     return "\n".join(lines)
 
 
-def _format_sync_result(result, *, saved: bool) -> str:
+def _format_sync_result(
+    result,
+    *,
+    saved: bool,
+    auth_source: str | None = None,
+    auth_status: str | None = None,
+) -> str:
     comic = result.comic
     lines = [
         f"Synced detail: {comic.title}",
         f"Source URL: {result.detail_url}",
         f"id: {comic.source_comic_id}",
     ]
+    if auth_source is not None:
+        status = auth_status or "unknown"
+        lines.append(f"Auth: {auth_source} ({status}; not server-validated)")
     if comic.author:
         lines.append(f"Author: {comic.author}")
     if comic.status:
@@ -562,6 +816,101 @@ def _display_metadata_field(field: str) -> str:
 
 def _display_optional(value: str | None) -> str:
     return value if value else "(none)"
+
+
+def _auth_source_from_args(args: argparse.Namespace, config) -> str:
+    return (getattr(args, "source", None) or config.source).strip()
+
+
+def _sync_auth_source(args: argparse.Namespace, sync_source: str) -> str | None:
+    raw_auth = getattr(args, "auth", False)
+    if raw_auth is False:
+        return None
+    if raw_auth is True:
+        return sync_source
+    auth_source = str(raw_auth).strip()
+    if not auth_source:
+        raise AuthSessionError("sync auth source cannot be blank")
+    return auth_source
+
+
+def _require_auth_session(config, source: str) -> AuthSession:
+    if str(config.database_path) != ":memory:":
+        database_path = Path(config.database_path).expanduser()
+        if not database_path.exists():
+            raise AuthSessionError(
+                "auth session not configured; run auth login first"
+            )
+
+    with connect_database(config.database_path) as connection:
+        session = ComicRepository(connection).get_auth_session(source)
+
+    if session is None:
+        raise AuthSessionError("auth session not configured; run auth login first")
+    if not session.session_path:
+        raise AuthSessionError("auth session metadata has no session file path")
+    session_file = Path(session.session_path).expanduser()
+    if not session_file.exists():
+        raise AuthSessionError(f"auth session file missing: {session_file}")
+    return session
+
+
+def _auth_session_path_from_args(args: argparse.Namespace, config, source: str) -> Path:
+    raw_path = getattr(args, "session_path", None)
+    if raw_path is not None:
+        if not str(raw_path).strip():
+            raise ValueError("auth session path cannot be blank")
+        return Path(raw_path).expanduser()
+    return default_auth_session_path(config, source).expanduser()
+
+
+def _load_auth_session_without_creating_database(config, source: str) -> AuthSession | None:
+    if str(config.database_path) != ":memory:":
+        database_path = Path(config.database_path).expanduser()
+        if not database_path.exists():
+            return None
+
+    with connect_database(config.database_path) as connection:
+        return ComicRepository(connection).get_auth_session(source)
+
+
+def _format_auth_status(session: AuthSession | None, *, source: str) -> str:
+    lines = [f"Auth session: {source}"]
+    if session is None:
+        lines.append("Status: not configured")
+        lines.append("No local session metadata found.")
+        return "\n".join(lines)
+
+    session_file_exists = False
+    if session.session_path:
+        session_file_exists = Path(session.session_path).expanduser().exists()
+    effective_status = (
+        "missing_file"
+        if session.session_path and not session_file_exists
+        else session.status
+    )
+
+    lines.extend(
+        [
+            f"Status: {effective_status}",
+            f"Stored status: {session.status}",
+            f"Storage backend: {session.storage_backend}",
+            f"Session file: {session.session_path or '(none)'}",
+            f"Session file exists: {'yes' if session_file_exists else 'no'}",
+            f"Created: {session.created_at or '(unknown)'}",
+            f"Last validated: {session.last_validated_at or 'not server-validated'}",
+            f"Expires hint: {session.expires_hint or 'unknown'}",
+            (
+                "Local storage warning acknowledged: "
+                f"{session.warning_acknowledged_at or '(unknown)'}"
+            ),
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _utc_now_string() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _handle_watch_list(args: argparse.Namespace, config) -> int:

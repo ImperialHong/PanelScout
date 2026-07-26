@@ -24,6 +24,7 @@ Implemented files:
 - `src/panelscout/cli.py`
 - `src/panelscout/config.py`
 - placeholder package directories under `src/panelscout/`
+- `tests/test_auth_session.py`
 - `tests/test_cli.py`
 - `tests/test_config.py`
 
@@ -851,3 +852,73 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - Boundary scan found only expected matches: public-host rejection tests, foreground local `serve_forever`, historical design/auth/session placeholders, `session_dir` fixture paths, author-field text, and negative no-login/no-bypass/no-background wording.
 - No live network, real source image downloads, login/auth/session/cookie workflow, browser automation, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.
+
+### Unit 30: Authenticated Session Capture Baseline
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-26
+
+Implemented files:
+
+- `pyproject.toml`
+- `README.md`
+- `docs/design-document.md`
+- `src/panelscout/auth/__init__.py`
+- `src/panelscout/auth/session.py`
+- `src/panelscout/cli.py`
+- `src/panelscout/storage/repositories.py`
+- `tests/test_cli.py`
+- `tests/test_storage.py`
+
+Validation summary:
+
+- Added auth session repository helpers for upserting, reading, and deleting local authenticated-session metadata.
+- Added `panelscout auth login [SOURCE] --acknowledge-local-session-storage`.
+- `auth login` opens a user-driven local Playwright browser only when the optional auth dependency is installed and available.
+- `auth login` saves browser storage state to the configured session directory and records metadata in SQLite after the storage-state file exists.
+- `auth login` requires explicit acknowledgement that storage-state files contain sensitive cookies/session data.
+- `auth login` has no username/password arguments and does not receive, store, print, or persist plaintext credentials.
+- Added `panelscout auth status [SOURCE]` for local metadata and storage-state file existence readout without creating default databases just to inspect status.
+- Added `panelscout auth logout [SOURCE]` to delete the recorded local storage-state file and SQLite metadata idempotently.
+- Added optional dependency group `auth = ["playwright>=1.45"]` without making Playwright a mandatory runtime dependency for public/anonymous workflows.
+- Authenticated `sync --auth` and server-side session validation are still pending.
+- Focused storage/CLI tests passed with 48 tests.
+- Full `unittest discover -s tests` passed with 114 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- No credential collection, default credential storage, authenticated fetch reuse, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.
+
+### Unit 31: Authenticated Detail Sync Reuse Baseline
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-26
+
+Implemented files:
+
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `src/panelscout/auth/__init__.py`
+- `src/panelscout/auth/session.py`
+- `src/panelscout/cli.py`
+- `tests/test_cli.py`
+
+Validation summary:
+
+- Added `panelscout sync REF --auth [SOURCE]` for explicitly reusing a saved local authenticated browser session during detail sync.
+- Authenticated sync requires local auth session metadata and an existing storage-state file before creating any sync fetcher.
+- Added an optional Playwright-based authenticated HTML fetcher that loads the saved storage state, applies the configured User-Agent, respects robots checks, and returns the existing `FetchedHtml` shape.
+- Authenticated sync still uses the accepted `sync_public_detail` workflow for parsing, storage, idempotency, and metadata-change reporting.
+- Authenticated sync output marks the source and stored session status as not server-validated.
+- Missing session metadata, missing storage-state files, and mismatched `--auth`/`--source` values fail before fetching.
+- Server-side validation remains response-driven: blocked, expired, CAPTCHA, restricted, non-HTML, and HTTP error responses fail clearly instead of attempting automatic recovery or bypass.
+- Focused auth/CLI tests passed with 44 tests.
+- Full `unittest discover -s tests` passed with 122 tests.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- No credential collection, default credential storage, automatic credential replay, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, authenticated download reuse, public hosting, background daemon, or queue runtime was introduced.

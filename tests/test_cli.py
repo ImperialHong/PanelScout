@@ -7,10 +7,11 @@ import unittest
 from unittest.mock import patch
 
 from panelscout import __version__
+from panelscout.auth import AuthSessionUnavailableError, BrowserLoginResult
 from panelscout.cli import main
 from panelscout.crawler import FetchedHtml, RobotsLoadError
 from panelscout.downloader import FetchedImage
-from panelscout.storage import Chapter, Comic, ComicRepository, connect_database
+from panelscout.storage import AuthSession, Chapter, Comic, ComicRepository, connect_database
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "zaimanhua"
 
@@ -355,6 +356,261 @@ class CliTests(unittest.TestCase):
         self.assertEqual(stdout, "")
         self.assertIn("robots policy unavailable", stderr)
         self.assertIn("fixture unavailable", stderr)
+
+    def test_sync_auth_requires_saved_session_before_fetching(self):
+        factory = RaisingSyncFetcherFactory(AssertionError("factory should not be called"))
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            _write_test_config(config_path, root, database_path)
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "sync", "15599", "--auth"],
+                sync_fetcher_factory=factory,
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("auth sync unavailable", stderr)
+        self.assertIn("auth session not configured", stderr)
+        self.assertEqual(factory.calls, 0)
+        self.assertFalse(database_path.exists())
+
+    def test_sync_auth_requires_existing_session_file_before_fetching(self):
+        factory = RaisingSyncFetcherFactory(AssertionError("factory should not be called"))
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            session_path = root / "sessions" / "missing.storage.json"
+            _write_test_config(config_path, root, database_path)
+            with connect_database(database_path) as connection:
+                ComicRepository(connection).upsert_auth_session(
+                    AuthSession(
+                        source="zaimanhua",
+                        storage_backend="playwright_storage_state",
+                        session_path=str(session_path),
+                        status="stored",
+                    )
+                )
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "sync", "15599", "--auth", "zaimanhua"],
+                sync_fetcher_factory=factory,
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("auth session file missing", stderr)
+        self.assertEqual(factory.calls, 0)
+
+    def test_sync_auth_uses_saved_session_and_existing_sync_workflow(self):
+        fixture = (FIXTURE_ROOT / "details_15599_with_chapters.html").read_text(
+            encoding="utf-8"
+        )
+        factory = FakeSyncFetcherFactory(fixture)
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            session_path = root / "sessions" / "zaimanhua.storage.json"
+            session_path.parent.mkdir(parents=True, exist_ok=True)
+            session_path.write_text('{"cookies":[],"origins":[]}', encoding="utf-8")
+            _write_test_config(config_path, root, database_path)
+            with connect_database(database_path) as connection:
+                ComicRepository(connection).upsert_auth_session(
+                    AuthSession(
+                        source="zaimanhua",
+                        storage_backend="playwright_storage_state",
+                        session_path=str(session_path),
+                        status="stored",
+                        warning_acknowledged_at="2026-07-26T00:00:00+00:00",
+                    )
+                )
+
+            code, stdout, stderr = run_cli(
+                ["--config", str(config_path), "sync", "15599", "--auth", "--save"],
+                sync_fetcher_factory=factory,
+            )
+            with connect_database(database_path) as connection:
+                repository = ComicRepository(connection)
+                comic = repository.get_comic_by_source("zaimanhua", "15599")
+                chapters = repository.list_chapters(comic.id or -1) if comic else []
+
+        self.assertEqual(code, 0)
+        self.assertEqual(stderr, "")
+        self.assertIn("Synced detail: 伪恋同盟", stdout)
+        self.assertIn("Auth: zaimanhua (stored; not server-validated)", stdout)
+        self.assertIn("Saved: yes", stdout)
+        self.assertEqual(
+            factory.fetcher.urls,
+            ["https://manhua.zaimanhua.com/details/15599"],
+        )
+        self.assertEqual([chapter.title for chapter in chapters], ["第001话 背叛之后", "第002话 同盟成立"])
+
+    def test_sync_auth_rejects_source_mismatch_before_fetching(self):
+        factory = RaisingSyncFetcherFactory(AssertionError("factory should not be called"))
+
+        code, stdout, stderr = run_cli(
+            ["sync", "15599", "--source", "zaimanhua", "--auth", "example"],
+            sync_fetcher_factory=factory,
+        )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("does not match sync source", stderr)
+        self.assertEqual(factory.calls, 0)
+
+    def test_auth_login_requires_acknowledgement_before_browser_or_home_dirs(self):
+        runner = RaisingAuthLoginRunner(AssertionError("runner should not be called"))
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            fake_home = root / "home"
+            fake_config_home = root / "config-home"
+            fake_data_home = root / "data-home"
+            fake_cache_home = root / "cache-home"
+            env = {
+                "HOME": str(fake_home),
+                "XDG_CONFIG_HOME": str(fake_config_home),
+                "XDG_DATA_HOME": str(fake_data_home),
+                "XDG_CACHE_HOME": str(fake_cache_home),
+            }
+
+            with patch.dict(os.environ, env, clear=False):
+                os.environ.pop("PANELSCOUT_CONFIG", None)
+                code, stdout, stderr = run_cli(
+                    ["auth", "login", "zaimanhua"],
+                    auth_login_runner=runner,
+                )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("--acknowledge-local-session-storage", stderr)
+        self.assertIn("cookies/session data", stderr)
+        self.assertEqual(runner.calls, [])
+        self.assertFalse(fake_home.exists())
+        self.assertFalse(fake_config_home.exists())
+        self.assertFalse(fake_data_home.exists())
+        self.assertFalse(fake_cache_home.exists())
+
+    def test_auth_login_status_and_logout_use_local_session_storage_only(self):
+        runner = FakeAuthLoginRunner()
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            _write_test_config(config_path, root, database_path)
+            session_path = root / "sessions" / "zaimanhua.storage.json"
+
+            login_code, login_stdout, login_stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "auth",
+                    "login",
+                    "zaimanhua",
+                    "--acknowledge-local-session-storage",
+                ],
+                auth_login_runner=runner,
+            )
+            status_code, status_stdout, status_stderr = run_cli(
+                ["--config", str(config_path), "auth", "status", "zaimanhua"]
+            )
+            logout_code, logout_stdout, logout_stderr = run_cli(
+                ["--config", str(config_path), "auth", "logout", "zaimanhua"]
+            )
+            final_status_code, final_status_stdout, final_status_stderr = run_cli(
+                ["--config", str(config_path), "auth", "status", "zaimanhua"]
+            )
+
+            with connect_database(database_path) as connection:
+                stored_session = ComicRepository(connection).get_auth_session("zaimanhua")
+
+        self.assertEqual(login_code, 0)
+        self.assertIn("Auth session stored: zaimanhua", login_stdout)
+        self.assertIn("not server-validated", login_stdout)
+        self.assertIn(str(session_path), login_stdout)
+        self.assertIn("did not receive or store your username or password", login_stdout)
+        self.assertEqual(login_stderr, "")
+        self.assertEqual(
+            runner.calls,
+            [("zaimanhua", "https://manhua.zaimanhua.com", session_path)],
+        )
+        self.assertEqual(status_code, 0)
+        self.assertIn("Status: stored", status_stdout)
+        self.assertIn("Session file exists: yes", status_stdout)
+        self.assertEqual(status_stderr, "")
+        self.assertEqual(logout_code, 0)
+        self.assertIn("Auth session removed: zaimanhua", logout_stdout)
+        self.assertIn(f"Deleted session file: {session_path}", logout_stdout)
+        self.assertEqual(logout_stderr, "")
+        self.assertEqual(final_status_code, 0)
+        self.assertIn("Status: not configured", final_status_stdout)
+        self.assertEqual(final_status_stderr, "")
+        self.assertIsNone(stored_session)
+        self.assertFalse(session_path.exists())
+
+    def test_auth_login_reports_missing_playwright_without_storing_session(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            database_path = root / "panel.sqlite3"
+            config_path = root / "config.toml"
+            _write_test_config(config_path, root, database_path)
+
+            code, stdout, stderr = run_cli(
+                [
+                    "--config",
+                    str(config_path),
+                    "auth",
+                    "login",
+                    "zaimanhua",
+                    "--acknowledge-local-session-storage",
+                ],
+                auth_login_runner=RaisingAuthLoginRunner(
+                    AuthSessionUnavailableError("Playwright is not installed")
+                ),
+            )
+
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout, "")
+        self.assertIn("auth login failed", stderr)
+        self.assertIn("Playwright is not installed", stderr)
+        self.assertFalse(database_path.exists())
+
+    def test_auth_rejects_unsupported_source(self):
+        login_code, login_stdout, login_stderr = run_cli(
+            [
+                "auth",
+                "login",
+                "example",
+                "--acknowledge-local-session-storage",
+            ],
+            auth_login_runner=RaisingAuthLoginRunner(
+                AssertionError("runner should not be called")
+            ),
+        )
+        status_code, status_stdout, status_stderr = run_cli(
+            ["auth", "status", "example"]
+        )
+        logout_code, logout_stdout, logout_stderr = run_cli(
+            ["auth", "logout", "example"]
+        )
+
+        self.assertEqual(login_code, 1)
+        self.assertEqual(login_stdout, "")
+        self.assertIn("unsupported auth source 'example'", login_stderr)
+        self.assertEqual(status_code, 1)
+        self.assertEqual(status_stdout, "")
+        self.assertIn("unsupported auth source 'example'", status_stderr)
+        self.assertEqual(logout_code, 1)
+        self.assertEqual(logout_stdout, "")
+        self.assertIn("unsupported auth source 'example'", logout_stderr)
 
     def test_watch_add_list_and_remove_uses_configured_database_only(self):
         with TemporaryDirectory() as directory:
@@ -1252,6 +1508,28 @@ def _seed_download_chapter(database_path: Path) -> None:
                 source_chapter_id="1001",
             )
         )
+
+
+class FakeAuthLoginRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, Path]] = []
+
+    def __call__(self, *, source: str, start_url: str, session_path: Path):
+        path = Path(session_path)
+        self.calls.append((source, start_url, path))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"cookies":[],"origins":[]}', encoding="utf-8")
+        return BrowserLoginResult(source=source, session_path=path)
+
+
+class RaisingAuthLoginRunner:
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.calls: list[tuple[str, str, Path]] = []
+
+    def __call__(self, *, source: str, start_url: str, session_path: Path):
+        self.calls.append((source, start_url, Path(session_path)))
+        raise self.error
 
 
 class FakeDownloadFetcherFactory:

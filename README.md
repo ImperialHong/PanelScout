@@ -6,7 +6,7 @@ Chinese name: 格探
 
 ## Current Stage
 
-This repository is at the design-document stage. The initial architecture, scope, safety boundaries, and MVP roadmap are recorded in [docs/design-document.md](docs/design-document.md).
+This repository has a tested local MVP baseline for public search, detail sync, explicit download planning/saving, local UI actions, and the first authenticated-session capture commands. Current architecture, scope, safety boundaries, and unit acceptance reports are recorded in [docs/design-document.md](docs/design-document.md) and [docs/unit-acceptance-reports.md](docs/unit-acceptance-reports.md).
 
 ## Guiding Principle
 

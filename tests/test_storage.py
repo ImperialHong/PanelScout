@@ -3,7 +3,13 @@ from tempfile import TemporaryDirectory
 import sqlite3
 import unittest
 
-from panelscout.storage import Comic, ComicRepository, StorageError, connect_database
+from panelscout.storage import (
+    AuthSession,
+    Comic,
+    ComicRepository,
+    StorageError,
+    connect_database,
+)
 from panelscout.storage.models import Chapter
 
 
@@ -155,6 +161,43 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(counts["crawl_jobs"], 1)
         self.assertEqual(counts["crawl_logs"], 1)
         self.assertEqual(counts["auth_sessions"], 1)
+
+    def test_upserts_reads_and_deletes_auth_session_metadata(self):
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+
+            first = repository.upsert_auth_session(
+                AuthSession(
+                    source="zaimanhua",
+                    storage_backend="playwright_storage_state",
+                    session_path="/tmp/zaimanhua.storage.json",
+                    status="stored",
+                    warning_acknowledged_at="2026-07-26T00:00:00+00:00",
+                )
+            )
+            second = repository.upsert_auth_session(
+                AuthSession(
+                    source="zaimanhua",
+                    storage_backend="playwright_storage_state",
+                    session_path="/tmp/zaimanhua-updated.storage.json",
+                    status="stored",
+                    last_validated_at="2026-07-26T01:00:00+00:00",
+                    expires_hint="unknown",
+                    warning_acknowledged_at="2026-07-26T00:30:00+00:00",
+                )
+            )
+            loaded = repository.get_auth_session("zaimanhua")
+            deleted = repository.delete_auth_session("zaimanhua")
+            missing = repository.get_auth_session("zaimanhua")
+
+        self.assertEqual(first.id, second.id)
+        self.assertIsNotNone(loaded)
+        assert loaded is not None
+        self.assertEqual(loaded.session_path, "/tmp/zaimanhua-updated.storage.json")
+        self.assertEqual(loaded.last_validated_at, "2026-07-26T01:00:00+00:00")
+        self.assertEqual(loaded.expires_hint, "unknown")
+        self.assertTrue(deleted)
+        self.assertIsNone(missing)
 
     def test_chapters_require_existing_comic(self):
         with connect_database(":memory:") as connection:
