@@ -65,6 +65,19 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       white-space: nowrap;
     }}
     nav a:first-child {{ color: var(--accent); border-color: var(--accent); }}
+    .session-toggle {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+      color: var(--muted);
+      white-space: nowrap;
+    }}
+    .session-toggle input {{
+      min-height: 16px;
+      width: 16px;
+      padding: 0;
+    }}
     main {{
       display: grid;
       grid-template-columns: minmax(330px, 38%) minmax(460px, 1fr);
@@ -149,6 +162,10 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       <a href="#download">下载</a>
       <a href="#status">状态</a>
     </nav>
+    <label class="session-toggle" title="使用本机已保存的登录会话">
+      <input id="auth-mode" type="checkbox" checked aria-label="使用登录会话">
+      <span>登录会话</span>
+    </label>
   </header>
   <main>
     <aside id="search">
@@ -227,6 +244,10 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
         throw new Error(data.error || '请求失败');
       }}
       return data;
+    }}
+
+    function authPayload() {{
+      return document.getElementById('auth-mode').checked ? {{ auth: true }} : {{}};
     }}
 
     function comicButton(comic) {{
@@ -327,7 +348,8 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       try {{
         const data = await api('/api/search', {{
           query: document.getElementById('search-query').value,
-          save: true
+          save: true,
+          ...authPayload()
         }});
         renderComics(data.comics || [], 'search-results');
         showMessage('搜索已完成。');
@@ -342,7 +364,8 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       try {{
         const data = await api('/api/sync', {{
           reference: document.getElementById('source-comic-id').value,
-          save: true
+          save: true,
+          ...authPayload()
         }});
         renderDetail(data.comic, data.chapters || []);
         showMessage('详情同步已完成。');
@@ -357,7 +380,8 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
         source_comic_id: document.getElementById('source-comic-id').value,
         chapter: state.selectedChapter || document.querySelector('input[name="chapter"]:checked')?.value || '',
         output_root: document.getElementById('download-root').value,
-        permission_note: document.getElementById('permission-note').value
+        permission_note: document.getElementById('permission-note').value,
+        ...authPayload()
       }};
     }}
 

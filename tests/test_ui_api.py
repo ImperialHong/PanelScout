@@ -9,7 +9,8 @@ from panelscout.config import build_config
 from panelscout.crawler import FetchedHtml
 from panelscout.downloader import FetchedImage
 from panelscout.storage import ComicRepository, connect_database
-from panelscout.ui import PanelScoutUiApi, UiApiFactories
+from panelscout.storage.models import AuthSession
+from panelscout.ui import PanelScoutUiApi, UiApiError, UiApiFactories
 from panelscout.ui.server import UiHttpApplication, UiServerError, serve_local_ui
 
 
@@ -140,6 +141,61 @@ class PanelScoutUiApiTests(unittest.TestCase):
         self.assertEqual(status["download_status"]["files"], ["001.jpg"])
         self.assertEqual(status["download_status"]["partials"], ["002.png.part"])
 
+    def test_authenticated_search_payload_requires_saved_session_before_fetching(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            search_factory = FakeHtmlFetcherFactory(
+                {SEARCH_URL: _fixture("search_weisample.html")}
+            )
+            api = PanelScoutUiApi(
+                config,
+                factories=UiApiFactories(search_fetcher_factory=search_factory),
+            )
+
+            with self.assertRaises(UiApiError) as error:
+                api.search({"query": "伪恋", "auth": True})
+
+        self.assertEqual(error.exception.status_code, 401)
+        self.assertEqual(search_factory.configs, [])
+
+    def test_authenticated_download_plan_reuses_saved_session_with_fixture_fetcher(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            _store_auth_session(config, root / "sessions" / "zaimanhua.storage.json")
+            download_factory = FakeHtmlFetcherFactory(
+                {CHAPTER_URL: _fixture("chapter_15599_1001.html")}
+            )
+            api = PanelScoutUiApi(
+                config,
+                factories=UiApiFactories(
+                    search_fetcher_factory=FakeHtmlFetcherFactory(
+                        {SEARCH_URL: _fixture("search_weisample.html")}
+                    ),
+                    sync_fetcher_factory=FakeHtmlFetcherFactory(
+                        {DETAIL_URL: _fixture("details_15599_with_chapters.html")}
+                    ),
+                    download_fetcher_factory=download_factory,
+                ),
+            )
+            api.search({"query": "伪恋", "save": True})
+            api.sync({"reference": "15599", "save": True})
+
+            plan = api.download_plan(
+                {
+                    "source_comic_id": "15599",
+                    "chapter": "1",
+                    "output_root": str(root / "downloads"),
+                    "permission_note": PERMISSION_NOTE,
+                    "auth": True,
+                }
+            )
+
+        self.assertTrue(plan["ok"])
+        self.assertEqual(plan["images_discovered"], 4)
+        self.assertEqual(download_factory.configs, [config])
+
     def test_http_application_routes_without_opening_a_socket(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -263,6 +319,20 @@ def _seed_synced_chapter(config) -> None:
     )
     api.search({"query": "伪恋", "save": True})
     api.sync({"reference": "15599", "save": True})
+
+
+def _store_auth_session(config, session_path: Path) -> None:
+    session_path.parent.mkdir(parents=True, exist_ok=True)
+    session_path.write_text('{"cookies":[],"origins":[]}', encoding="utf-8")
+    with connect_database(config.database_path) as connection:
+        ComicRepository(connection).upsert_auth_session(
+            AuthSession(
+                source="zaimanhua",
+                storage_backend="playwright_storage_state",
+                session_path=str(session_path),
+                status="stored",
+            )
+        )
 
 
 if __name__ == "__main__":

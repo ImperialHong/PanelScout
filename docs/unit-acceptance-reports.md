@@ -989,3 +989,36 @@ Validation summary:
 - Full default `unittest discover -s tests -v` passed with 126 tests and 1 default-skipped live auth smoke test.
 - `compileall` passed for `src` and `tests`.
 - No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.
+
+### Unit 34: Authenticated Local UI Reuse
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-26
+
+Implemented files:
+
+- `README.md`
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `src/panelscout/ui/__init__.py`
+- `src/panelscout/ui/api.py`
+- `src/panelscout/ui/app_shell.py`
+- `tests/test_ui_api.py`
+
+Validation summary:
+
+- Added `auth` payload handling to the local UI API for search, detail sync, download planning, and download execution.
+- UI auth requests require saved local auth session metadata and an existing storage-state file before any network fetcher is created.
+- Authenticated UI search uses the JavaScript-rendered search-ready selector, sync reuses the authenticated detail fetcher, and download planning/run waits for rendered chapter images before discovery.
+- Added a default-enabled `登录会话` switch to the interactive UI shell. Browser JavaScript still calls only the local PanelScout runner; it does not call source websites directly.
+- Public UI workflows remain available when `auth` is false or disabled.
+- Added UI API fixture coverage for missing-session 401 behavior before fetching and saved-session authenticated download planning through injected fixture fetchers.
+- Live UI API full-flow smoke using the git-ignored local session passed: `search` with `auth: true` found `伪恋同盟` id `15599`; `sync` with `auth: true` persisted `112` visible chapters; `download_plan` with `auth: true` for `第01话` discovered `1` chapter image; `download_run` with `auth: true` saved `1` JPEG with `0` failures.
+- Saved smoke output was written only under the git-ignored `.panelscout/live-e2e/downloads-ui-api-20260726161143/` directory. The saved file was `480x720` JPEG data at about `64K`.
+- Full default `PANELSCOUT_LIVE_AUTH=0 unittest discover -s tests -v` passed with `128` tests and `1` default-skipped live auth smoke test.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.

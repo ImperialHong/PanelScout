@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from panelscout.adapters.zaimanhua import SOURCE_NAME, build_robots_url
+from panelscout.auth import AuthenticatedBrowserHtmlFetcher, AuthSessionError
 from panelscout.config import PanelScoutConfig
 from panelscout.crawler import (
     FetchError,
@@ -25,7 +26,7 @@ from panelscout.downloader import (
     save_public_chapter_download,
 )
 from panelscout.storage import ComicRepository, connect_database
-from panelscout.storage.models import Chapter, Comic
+from panelscout.storage.models import AuthSession, Chapter, Comic
 from panelscout.ui.state import LocalUiState, build_local_ui_state
 
 
@@ -70,7 +71,13 @@ class PanelScoutUiApi:
     def search(self, payload: dict[str, Any]) -> dict[str, Any]:
         query = _required_string(payload, "query")
         save = bool(payload.get("save", True))
-        factory = self.factories.search_fetcher_factory or _create_html_fetcher
+        source = str(payload.get("source") or self.config.source)
+        factory = _search_fetcher_factory_for_payload(
+            payload,
+            self.config,
+            source,
+            self.factories.search_fetcher_factory,
+        )
         try:
             fetcher = factory(self.config)
             if save:
@@ -84,7 +91,12 @@ class PanelScoutUiApi:
                 result = search_public_comics(query, fetcher)
         except ValueError as error:
             raise UiApiError(str(error), status_code=400) from error
-        except (RobotsLoadError, RobotsDisallowedError, FetchError) as error:
+        except (
+            RobotsLoadError,
+            RobotsDisallowedError,
+            FetchError,
+            AuthSessionError,
+        ) as error:
             raise UiApiError(str(error), status_code=502) from error
 
         return {
@@ -100,12 +112,18 @@ class PanelScoutUiApi:
     def sync(self, payload: dict[str, Any]) -> dict[str, Any]:
         reference = _required_string(payload, "reference")
         save = bool(payload.get("save", True))
+        source = str(payload.get("source") or self.config.source)
         try:
             normalize_detail_reference(reference)
         except ValueError as error:
             raise UiApiError(str(error), status_code=400) from error
 
-        factory = self.factories.sync_fetcher_factory or _create_html_fetcher
+        factory = _sync_fetcher_factory_for_payload(
+            payload,
+            self.config,
+            source,
+            self.factories.sync_fetcher_factory,
+        )
         database_path = self.config.database_path if save else ":memory:"
         try:
             fetcher = factory(self.config)
@@ -117,7 +135,12 @@ class PanelScoutUiApi:
                 )
         except ValueError as error:
             raise UiApiError(str(error), status_code=400) from error
-        except (RobotsLoadError, RobotsDisallowedError, FetchError) as error:
+        except (
+            RobotsLoadError,
+            RobotsDisallowedError,
+            FetchError,
+            AuthSessionError,
+        ) as error:
             raise UiApiError(str(error), status_code=502) from error
 
         return {
@@ -135,7 +158,12 @@ class PanelScoutUiApi:
         source, comic, chapter = self._load_selection(payload)
         permission_note = _required_string(payload, "permission_note")
         download_root = _download_root(payload, self.config)
-        factory = self.factories.download_fetcher_factory or _create_html_fetcher
+        factory = _download_fetcher_factory_for_payload(
+            payload,
+            self.config,
+            source,
+            self.factories.download_fetcher_factory,
+        )
         try:
             result = plan_public_chapter_download(
                 comic=comic,
@@ -146,7 +174,12 @@ class PanelScoutUiApi:
             )
         except ValueError as error:
             raise UiApiError(str(error), status_code=400) from error
-        except (RobotsLoadError, RobotsDisallowedError, FetchError) as error:
+        except (
+            RobotsLoadError,
+            RobotsDisallowedError,
+            FetchError,
+            AuthSessionError,
+        ) as error:
             raise UiApiError(str(error), status_code=502) from error
 
         return {
@@ -164,7 +197,12 @@ class PanelScoutUiApi:
         source, comic, chapter = self._load_selection(payload)
         permission_note = _required_string(payload, "permission_note")
         download_root = _download_root(payload, self.config)
-        download_factory = self.factories.download_fetcher_factory or _create_html_fetcher
+        download_factory = _download_fetcher_factory_for_payload(
+            payload,
+            self.config,
+            source,
+            self.factories.download_fetcher_factory,
+        )
         image_factory = self.factories.image_fetcher_factory or _create_image_fetcher
         try:
             result = save_public_chapter_download(
@@ -177,7 +215,12 @@ class PanelScoutUiApi:
             )
         except ValueError as error:
             raise UiApiError(str(error), status_code=400) from error
-        except (RobotsLoadError, RobotsDisallowedError, FetchError) as error:
+        except (
+            RobotsLoadError,
+            RobotsDisallowedError,
+            FetchError,
+            AuthSessionError,
+        ) as error:
             raise UiApiError(str(error), status_code=502) from error
 
         return {
@@ -264,8 +307,176 @@ def _create_html_fetcher(config: PanelScoutConfig) -> HtmlFetcher:
     return HtmlFetcher(config=config, robots_policy=robots_policy)
 
 
+def _create_authenticated_html_fetcher(
+    config: PanelScoutConfig,
+    session: AuthSession,
+    *,
+    render_ready_selector: str | None = None,
+    render_wait_seconds: float | None = None,
+) -> AuthenticatedBrowserHtmlFetcher:
+    if not session.session_path:
+        raise AuthSessionError("auth session metadata has no session file path")
+    robots_policy = load_robots_policy(
+        build_robots_url(),
+        user_agent=config.user_agent,
+    )
+    fetcher_options: dict[str, Any] = {}
+    if render_ready_selector is not None:
+        fetcher_options["render_ready_selector"] = render_ready_selector
+    if render_wait_seconds is not None:
+        fetcher_options["render_wait_seconds"] = render_wait_seconds
+    return AuthenticatedBrowserHtmlFetcher(
+        config=config,
+        session_path=session.session_path,
+        robots_policy=robots_policy,
+        **fetcher_options,
+    )
+
+
+def _create_authenticated_search_fetcher(
+    config: PanelScoutConfig,
+    session: AuthSession,
+) -> AuthenticatedBrowserHtmlFetcher:
+    return _create_authenticated_html_fetcher(
+        config,
+        session,
+        render_ready_selector='a[href*="/details/"]',
+        render_wait_seconds=10,
+    )
+
+
+def _create_authenticated_sync_fetcher(
+    config: PanelScoutConfig,
+    session: AuthSession,
+) -> AuthenticatedBrowserHtmlFetcher:
+    return _create_authenticated_html_fetcher(config, session)
+
+
+def _create_authenticated_download_fetcher(
+    config: PanelScoutConfig,
+    session: AuthSession,
+) -> AuthenticatedBrowserHtmlFetcher:
+    return _create_authenticated_html_fetcher(
+        config,
+        session,
+        render_ready_selector='img[src*="images.zaimanhua.com"]',
+        render_wait_seconds=10,
+    )
+
+
 def _create_image_fetcher(config: PanelScoutConfig) -> ImageFetcher:
     return ImageFetcher(config=config)
+
+
+def _search_fetcher_factory_for_payload(
+    payload: dict[str, Any],
+    config: PanelScoutConfig,
+    source: str,
+    injected_factory: FetcherFactory | None,
+) -> FetcherFactory:
+    session = _auth_session_from_payload(payload, config, source, action="search")
+    if session is None:
+        return injected_factory or _create_html_fetcher
+    if injected_factory is not None:
+        return injected_factory
+    return lambda runtime_config: _create_authenticated_search_fetcher(
+        runtime_config,
+        session,
+    )
+
+
+def _sync_fetcher_factory_for_payload(
+    payload: dict[str, Any],
+    config: PanelScoutConfig,
+    source: str,
+    injected_factory: FetcherFactory | None,
+) -> FetcherFactory:
+    session = _auth_session_from_payload(payload, config, source, action="sync")
+    if session is None:
+        return injected_factory or _create_html_fetcher
+    if injected_factory is not None:
+        return injected_factory
+    return lambda runtime_config: _create_authenticated_sync_fetcher(
+        runtime_config,
+        session,
+    )
+
+
+def _download_fetcher_factory_for_payload(
+    payload: dict[str, Any],
+    config: PanelScoutConfig,
+    source: str,
+    injected_factory: FetcherFactory | None,
+) -> FetcherFactory:
+    session = _auth_session_from_payload(payload, config, source, action="download")
+    if session is None:
+        return injected_factory or _create_html_fetcher
+    if injected_factory is not None:
+        return injected_factory
+    return lambda runtime_config: _create_authenticated_download_fetcher(
+        runtime_config,
+        session,
+    )
+
+
+def _auth_session_from_payload(
+    payload: dict[str, Any],
+    config: PanelScoutConfig,
+    source: str,
+    *,
+    action: str,
+) -> AuthSession | None:
+    auth_source = _auth_source_from_payload(payload, source)
+    if auth_source is None:
+        return None
+    if auth_source != source:
+        raise UiApiError(
+            f"{action} auth source '{auth_source}' does not match source '{source}'",
+            status_code=400,
+        )
+    if auth_source != SOURCE_NAME:
+        raise UiApiError(f"unsupported auth source: {auth_source}", status_code=400)
+    return _require_auth_session(config, auth_source)
+
+
+def _auth_source_from_payload(payload: dict[str, Any], source: str) -> str | None:
+    raw_auth = payload.get("auth", False)
+    if raw_auth is False or raw_auth is None:
+        return None
+    if raw_auth is True:
+        return source
+    auth_text = str(raw_auth).strip()
+    if auth_text.lower() in {"", "0", "false", "no", "off"}:
+        return None
+    return auth_text
+
+
+def _require_auth_session(config: PanelScoutConfig, source: str) -> AuthSession:
+    if str(config.database_path) != ":memory:":
+        database_path = Path(config.database_path).expanduser()
+        if not database_path.exists():
+            raise UiApiError(
+                "auth session not configured; run auth login first",
+                status_code=401,
+            )
+
+    with connect_database(config.database_path) as connection:
+        session = ComicRepository(connection).get_auth_session(source)
+
+    if session is None:
+        raise UiApiError(
+            "auth session not configured; run auth login first",
+            status_code=401,
+        )
+    if not session.session_path:
+        raise UiApiError(
+            "auth session metadata has no session file path",
+            status_code=401,
+        )
+    session_file = Path(session.session_path).expanduser()
+    if not session_file.exists():
+        raise UiApiError(f"auth session file missing: {session_file}", status_code=401)
+    return session
 
 
 def _state_dict(state: LocalUiState) -> dict[str, Any]:

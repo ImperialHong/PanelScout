@@ -6,7 +6,7 @@ Chinese name: 格探
 
 ## Current Stage
 
-This repository has a tested local MVP baseline for public search, detail sync, explicit download planning/saving, local UI actions, and the first authenticated-session capture commands. Current architecture, scope, safety boundaries, and unit acceptance reports are recorded in [docs/design-document.md](docs/design-document.md) and [docs/unit-acceptance-reports.md](docs/unit-acceptance-reports.md).
+This repository has a tested local MVP baseline for public and authenticated search, detail sync, explicit download planning/saving, local UI actions, and authenticated-session capture/reuse. Current architecture, scope, safety boundaries, and unit acceptance reports are recorded in [docs/design-document.md](docs/design-document.md) and [docs/unit-acceptance-reports.md](docs/unit-acceptance-reports.md).
 
 ## Guiding Principle
 
@@ -35,3 +35,12 @@ PYTHONPATH=src .venv/bin/panelscout search "伪恋同盟" --auth --save
 PYTHONPATH=src .venv/bin/panelscout sync 15599 --auth --save
 PYTHONPATH=src .venv/bin/panelscout download run 15599 --chapter "第01话" --auth --permission-note "用户确认该账号可访问该章节，仅用于本机开发烟测。"
 ```
+
+The interactive local UI also reuses the same saved session. Start it locally and keep the `登录会话` switch enabled for search, detail sync, download planning, and download execution:
+
+```bash
+PYTHONPATH=src .venv/bin/panelscout auth status zaimanhua
+PYTHONPATH=src .venv/bin/panelscout ui serve
+```
+
+If the UI reports that the auth session is not configured or the session file is missing, run `panelscout auth login zaimanhua --acknowledge-local-session-storage` again and retry.

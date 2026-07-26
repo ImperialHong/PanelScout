@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.33
+Version: 0.34
 
 Date: 2026-07-26
 
@@ -30,14 +30,14 @@ Current highest priority: expose the accepted minimum search-to-download busines
 The minimum business line is:
 
 ```text
-public search -> save comic -> public detail/chapter sync -> select chapter -> plan local download -> save chapter image files
+search -> save comic -> detail/chapter sync -> select chapter -> plan local download -> save chapter image files
 ```
 
 Priority rules:
 
 - Search, detail sync, chapter selection, download planning, opt-in local save, and UI command/status wiring take precedence over additional watchlist, reporting, scheduling, or multi-site features.
 - Downloader work must remain personal-use, permission-gated, conservative, resumable, and source-policy aware.
-- Public/anonymous content remains the current implementation path. Authenticated Session Mode stays in MVP 5 and must not block the anonymous minimum line.
+- Public/anonymous content remains available. Authenticated Session Mode is now an explicit CLI/local UI option that reuses saved local browser storage state and must not weaken the anonymous minimum line.
 - The project must first produce a working CLI-level minimum line. UI improvements should mirror the CLI line only after the core behavior is stable.
 - If a source page or policy blocks image saving, the downloader must fail safely with a clear local error instead of attempting bypasses.
 
@@ -237,7 +237,10 @@ Recommended command flow:
 - `panelscout auth login zaimanhua --acknowledge-local-session-storage`: Open a local Playwright browser window and let the user log in manually.
 - `panelscout auth status zaimanhua`: Check whether a saved session still appears valid.
 - `panelscout auth logout zaimanhua`: Delete the saved local session.
+- `panelscout search "伪恋同盟" --auth [zaimanhua] --save`: Reuse the saved session for JavaScript-rendered search.
 - `panelscout sync 15599 --auth [zaimanhua] --save`: Reuse the saved session for metadata and chapter sync.
+- `panelscout download plan/run 15599 --chapter "第01话" --auth [zaimanhua]`: Reuse the saved session while rendering selected chapter pages.
+- `panelscout ui serve`: Start the local UI; the `登录会话` switch sends the same explicit auth request to the local runner.
 
 Current baseline:
 
@@ -249,9 +252,10 @@ Current baseline:
 - Unit 31 wires `sync --auth` to the saved storage-state file through an optional Playwright authenticated HTML fetcher.
 - Unit 32 adds a default-skipped live authenticated smoke test harness that reads credentials only from `.env.local` or process environment when `PANELSCOUT_LIVE_AUTH=1`.
 - Unit 33 wires `search --auth` and `download plan/run --auth` to the saved storage-state file for JavaScript-rendered search and chapter-page rendering.
+- Unit 34 wires the interactive local UI search, sync, download plan, and download run requests to the same authenticated fetcher path when the `登录会话` switch is enabled.
 - Authenticated download page rendering filters out reader chrome, logos, and layout images before planning files, then keeps image byte fetching on the existing conservative fetcher.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
-- Public search/download workflows remain anonymous unless a later unit explicitly wires safe session reuse for those paths.
+- Public search/download workflows remain available when auth is disabled.
 
 Rules:
 
@@ -471,9 +475,10 @@ MVP 4 current implementation note:
 - Unit 27 adds interactive UI calls for public search/save and public detail/chapter sync.
 - Unit 28 adds interactive UI calls for explicit download plan/run using the accepted downloader workflow and permission note.
 - Unit 29 adds interactive UI status reads for saved and partial files in the selected chapter directory.
+- Unit 34 adds an explicit `登录会话` switch to the interactive local UI and routes search/sync/download page rendering through the saved authenticated browser session when enabled.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The static `ui build` shell remains a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
-- The interactive `ui serve` shell calls only the local PanelScout runner. It can trigger public search/sync/download workflows only after user actions, and it does not call third-party websites directly from browser JavaScript.
+- The interactive `ui serve` shell calls only the local PanelScout runner. It can trigger public or explicitly authenticated search/sync/download workflows only after user actions, and it does not call third-party websites directly from browser JavaScript.
 - Download action buttons in the interactive runner are user-triggered and require the permission note field. They do not start a queue or background daemon.
 
 ### MVP 5: Authenticated Session Mode
@@ -484,6 +489,8 @@ MVP 5 has started after the anonymous/public minimum search-to-download line rea
 - Local session storage. Status: baseline completed in Unit 30.
 - Session status readout. Status: local metadata/file status completed in Unit 30; server validation pending.
 - Authenticated metadata sync. Status: detail sync reuse baseline completed in Unit 31.
+- Authenticated search and chapter-page rendering. Status: CLI baseline completed in Unit 33.
+- Authenticated local UI reuse. Status: interactive UI/API baseline completed in Unit 34.
 - Automatic pause on expired or blocked sessions.
 - Session file gitignore rules. Status: baseline completed before Unit 30.
 
@@ -600,30 +607,30 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 4. Add opt-in CLI download execution for explicitly selected local chapters, with permission notes, conservative delays, temporary files, resume/skip behavior, and failure logging. Status: completed in Units 20-21.
 5. Validate the full minimum line end to end: search -> save -> sync chapters -> select chapter -> download to local folders. Status: completed in Unit 22.
 6. Resume MVP 4 by wiring the Chinese UI to the accepted search/sync/download/status workflows. Status: completed through Unit 29 at fixture-test level.
-7. Harden the local UI business flow with clearer empty states, progress display, and manual smoke checks before adding secondary UI features.
-8. Keep Authenticated Session Mode in MVP 5 until the anonymous/public UI-facing download line is stable and safe.
+7. Harden the local UI business flow with clearer empty states, progress display, and manual smoke checks before adding secondary UI features. Status: in progress after Unit 34.
+8. Continue Authenticated Session Mode in MVP 5 with server-side session validation and clearer expired-session recovery.
 9. Reassess downloader scope continuously against legal and source-policy risk.
 
 ## 15. Implementation Progress
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 29.
+Current accepted range: Unit 1 through Unit 34.
 
-Latest accepted Unit: Unit 29, UI Download Status Readout.
+Latest accepted Unit: Unit 34, Authenticated Local UI Reuse.
 
 High-level milestone status:
 
 - MVP 1: Project skeleton, SQLite storage, exporters, anonymous parser fixtures, robots policy, fetcher baseline, public search workflow, and safe CLI search integration are accepted.
 - MVP 2: Public detail sync, chapter metadata upsert, safe CLI sync integration, richer sync result, and report output are accepted. Authenticated Session Mode remains deferred to MVP 5.
 - MVP 3: Local watchlist, public watch update checks, Markdown watch reports, and local suggested watch schedule baseline are accepted.
-- Minimum search-to-download line: Search, save, public detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level.
+- Minimum search-to-download line: Search, save, detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level for public mode and at live-smoke level for authenticated mode.
 - MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, UI command bridge, local-only UI runner/API, UI search/save, UI detail/chapter sync, UI download plan/run, and UI download status read are accepted at fixture-test level.
-- MVP 5: Authenticated Session Mode is not started.
+- MVP 5: Authenticated Session Mode has accepted login capture/status/logout, authenticated sync, authenticated search, authenticated chapter-page rendering, and authenticated local UI reuse baselines. Server-side validation and recovery UX remain pending.
 
 ## 16. Next Unit Plan
 
-Current priority: harden the accepted local UI business MVP with focused usability, visible progress, and error-state refinement before expanding secondary pages.
+Current priority: validate and harden the authenticated local UI business flow with focused usability, visible progress, clear expired-session errors, and manual smoke checks before expanding secondary pages.
 
 Planned next Units:
 
@@ -634,7 +641,12 @@ Planned next Units:
 - Unit 27: UI search/save and detail/chapter sync. Status: accepted through local API endpoints.
 - Unit 28: UI download plan/run. Status: accepted through explicit local API endpoints.
 - Unit 29: UI download status readout. Status: accepted through local API endpoint and downloader status module.
-- Unit 30: UI business-flow hardening: clearer selected-chapter state, progress/readout polish, and manual local runner smoke checks.
+- Unit 30: Auth session login/status/logout baseline. Status: accepted.
+- Unit 31: Authenticated detail sync reuse. Status: accepted.
+- Unit 32: Live auth smoke env harness. Status: accepted.
+- Unit 33: Authenticated search-to-download live smoke. Status: accepted.
+- Unit 34: Authenticated local UI/API reuse. Status: accepted.
+- Unit 35: UI business-flow hardening: clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks.
 
 ## 17. Open Questions
 

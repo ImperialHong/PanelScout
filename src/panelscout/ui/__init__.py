@@ -1,6 +1,6 @@
 """Local UI shell and runner helpers."""
 
-from panelscout.ui.api import PanelScoutUiApi, UiApiFactories
+from panelscout.ui.api import PanelScoutUiApi, UiApiError, UiApiFactories
 from panelscout.ui.app_shell import build_interactive_ui_shell
 from panelscout.ui.server import (
     ALLOWED_UI_HOSTS,
@@ -14,6 +14,7 @@ __all__ = [
     "ALLOWED_UI_HOSTS",
     "LocalUiState",
     "PanelScoutUiApi",
+    "UiApiError",
     "UiApiFactories",
     "UiHttpApplication",
     "build_interactive_ui_shell",
