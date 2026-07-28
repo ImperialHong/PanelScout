@@ -39,6 +39,7 @@ from panelscout.downloader import (
 )
 from panelscout.storage import ComicRepository, connect_database
 from panelscout.storage.models import AuthSession, Chapter, Comic
+from panelscout.ui.download_queue import DownloadQueue, build_queue_job
 from panelscout.ui.shell import DOWNLOAD_PERMISSION_NOTE
 from panelscout.ui.state import LocalUiState, build_local_ui_state
 
@@ -77,6 +78,7 @@ class PanelScoutUiApi:
     ) -> None:
         self.config = config
         self.factories = factories or UiApiFactories()
+        self.download_queue = DownloadQueue(self._run_queued_download)
 
     def state(self) -> dict[str, Any]:
         state = build_local_ui_state(self.config)
@@ -379,6 +381,52 @@ class PanelScoutUiApi:
             "download_status": self.download_status(payload)["download_status"],
         }
 
+    def download_enqueue(self, payload: dict[str, Any]) -> dict[str, Any]:
+        chapters = _chapter_references(payload)
+        queue_jobs = []
+        for chapter_reference in chapters:
+            job_payload = {
+                key: value
+                for key, value in payload.items()
+                if key not in {"chapters", "chapter"}
+            }
+            job_payload["chapter"] = chapter_reference
+            source, comic, chapter = self._load_selection(job_payload)
+            _permission_note(job_payload)
+            output_root = str(Path(_download_root(job_payload, self.config)).expanduser())
+            job_payload["source"] = source
+            job_payload["source_comic_id"] = comic.source_comic_id
+            job_payload["chapter"] = chapter.title
+            job_payload["output_root"] = output_root
+            queue_jobs.append(
+                build_queue_job(
+                    payload=job_payload,
+                    source=source,
+                    source_comic_id=comic.source_comic_id,
+                    comic_title=comic.title,
+                    chapter_title=chapter.title,
+                    output_root=output_root,
+                )
+            )
+
+        queued_jobs = [self.download_queue.add(job) for job in queue_jobs]
+        snapshot = self.download_queue.snapshot()
+        return {
+            "ok": True,
+            "queued_count": len(queued_jobs),
+            "jobs": queued_jobs,
+            "queue": snapshot,
+        }
+
+    def download_queue_status(self) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "queue": self.download_queue.snapshot(),
+        }
+
+    def wait_for_download_queue_idle(self, timeout_seconds: float = 5.0) -> bool:
+        return self.download_queue.wait_until_idle(timeout_seconds)
+
     def download_status(self, payload: dict[str, Any]) -> dict[str, Any]:
         source, comic, chapter = self._load_selection(payload)
         root = Path(_download_root(payload, self.config)).expanduser()
@@ -431,6 +479,9 @@ class PanelScoutUiApi:
             if chapter is None:
                 raise UiApiError(f"local chapter not found: {chapter_reference}", status_code=404)
             return source, comic, chapter
+
+    def _run_queued_download(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.download_run(payload)
 
 
 def _create_html_fetcher(config: PanelScoutConfig) -> HtmlFetcher:
@@ -769,6 +820,19 @@ def _required_password(payload: dict[str, Any]) -> str:
     if not password:
         raise UiApiError("password cannot be blank", status_code=400)
     return password
+
+
+def _chapter_references(payload: dict[str, Any]) -> list[str]:
+    if "chapters" not in payload:
+        return [_required_string(payload, "chapter")]
+
+    raw_chapters = payload.get("chapters")
+    if not isinstance(raw_chapters, list):
+        raise UiApiError("chapters must be a list", status_code=400)
+    chapters = [str(value).strip() for value in raw_chapters if str(value).strip()]
+    if not chapters:
+        raise UiApiError("chapters cannot be empty", status_code=400)
+    return chapters
 
 
 def _download_root(payload: dict[str, Any], config: PanelScoutConfig) -> str | Path:

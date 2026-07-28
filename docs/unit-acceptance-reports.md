@@ -1126,3 +1126,38 @@ Validation summary:
 - `git diff --check` passed.
 - Sensitive-value scan found no checked-in match for the development test account username or password.
 - No credentials, cookies, storage-state files, local databases, downloaded comics, public hosting, or account-specific release artifacts were added.
+
+### Unit 38: Local UI Background Download Queue
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-28
+
+Implemented files:
+
+- `README.md`
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `src/panelscout/ui/api.py`
+- `src/panelscout/ui/app_shell.py`
+- `src/panelscout/ui/download_queue.py`
+- `src/panelscout/ui/server.py`
+- `tests/test_ui_api.py`
+- `tests/test_ui_runner.py`
+
+Validation summary:
+
+- Added an in-memory, thread-safe background queue owned by the running local UI API instance.
+- Added `/api/download/enqueue` for adding one or more selected chapters to the queue.
+- Added `/api/download/queue` for reading pending/running/complete/failed queue status.
+- Queue execution is sequential through a single background worker thread so new tasks can be added while an earlier download is running without concurrent file writes.
+- Queued payloads strip username/password fields and keep the existing local UI confirmation marker.
+- The interactive UI now changes the download action to `加入队列`, submits all selected chapters at once, polls the server queue, and leaves controls available after enqueue so the user can add more work.
+- Added fixture tests for multi-chapter enqueue and for adding a second queue item while the first worker job is blocked/running.
+- Focused validation passed with `PYTHONPATH=src .venv/bin/python -m unittest tests.test_ui_api tests.test_ui_runner -v`.
+- Full non-live validation passed with `PANELSCOUT_LIVE_AUTH=0 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`: `140` tests passed and `1` live smoke test was skipped.
+- `compileall` passed for `src` and `tests`.
+- Queue persistence across local server restarts, cancel, pause/resume, retry buttons, and SQLite-backed recovery remain pending.
+- No plaintext credentials, cookies, storage-state files, paid/VIP bypass, source restriction bypass, public hosting, or remote queue service was introduced.

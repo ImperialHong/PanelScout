@@ -1,6 +1,6 @@
 # PanelScout Design Document
 
-Version: 0.37
+Version: 0.38
 
 Date: 2026-07-28
 
@@ -182,6 +182,7 @@ Current CLI baseline:
 - Unit 27 wires the interactive Chinese UI to public search/save and detail/chapter sync APIs.
 - Unit 28 wires the UI to explicit download plan/run APIs.
 - Unit 29 returns local saved/partial download status for selected chapters.
+- Unit 38 adds a local in-memory background queue for the interactive UI. `/api/download/enqueue` accepts one or more selected chapters, `/api/download/queue` returns the current queue snapshot, and a single worker thread saves queued chapters sequentially.
 
 Default download root:
 
@@ -202,7 +203,8 @@ Rules:
 - Must write temporary files first and rename only after a complete image response is saved.
 - Must preserve the original image extension when known.
 - Must not include credentials, cookies, session state, or account identifiers in output folders.
-- Current baseline does not use credentials, cookies, sessions, referer spoofing, browser automation, or background queues.
+- Background queue execution must be local-only, user-triggered, sequential by default, and must not persist credentials or plaintext passwords in queued job payloads.
+- CLI public downloader execution does not use credentials, cookies, sessions, referer spoofing, browser automation, or background queues. Authenticated UI/CLI paths may reuse the user's saved local browser session, and the interactive UI now has an explicit local-only background queue.
 
 Output layout:
 
@@ -257,6 +259,7 @@ Current baseline:
 - Unit 34 wires the interactive local UI search, sync, download plan, and download run requests to the same authenticated fetcher path when a saved session is enabled.
 - Unit 35 switches supported authenticated reader pages to `滚动阅读` and snapshots rendered DOM/network image URLs before chapter image discovery.
 - Unit 36 simplifies the initial UI, replaces the visible auth switch with a `登录`/account menu, removes low-value plan/status buttons from the interactive download panel, adds multi-select/all-select chapters and a local download-directory picker, keeps the queue updated during download execution, and lets the local UI capture/logout the saved session without storing plaintext passwords.
+- Unit 38 changes the interactive UI download action from synchronous run-and-wait to enqueue-and-poll. Users can add selected chapters to the background queue while earlier downloads are still running.
 - Authenticated download page rendering filters out reader chrome, logos, and layout images before planning files, then keeps image byte fetching on the existing conservative fetcher.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
 - Public search/download workflows remain available when auth is disabled.
@@ -459,7 +462,7 @@ MVP 4 was temporarily de-prioritized behind the minimum search-to-download busin
 - 追更页。Status: static shell baseline completed in Unit 15; local watchlist entries, notes, and checked-status binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17.
 - 更新历史页。Status: static shell baseline completed in Unit 15; local summary binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; persisted history stream pending.
 - 章节选择与本地下载页。Status: static shell baseline completed in Unit 15; local chapter selector binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; CLI download plan/run baseline completed in Units 20-21; UI command bridge completed in Unit 23; local runner/API download plan/run wiring completed in Unit 28.
-- 下载队列/状态页。Status: static shell baseline completed in Unit 15; Chinese UI copy baseline completed in Unit 17; local saved/partial status read completed in Unit 29; queue engine remains out of scope for the minimum line.
+- 下载队列/状态页。Status: static shell baseline completed in Unit 15; Chinese UI copy baseline completed in Unit 17; local saved/partial status read completed in Unit 29; local in-memory background queue completed in Unit 38; persistent queue recovery remains pending.
 - 下载设置页。Status: static shell baseline completed in Unit 15; database path binding completed in Unit 16; Chinese UI copy baseline completed in Unit 17; settings persistence pending.
 
 MVP 4 required UI elements:
@@ -499,10 +502,11 @@ MVP 4 current implementation note:
 - Unit 29 adds interactive UI status reads for saved and partial files in the selected chapter directory.
 - Unit 34 routes interactive local UI search/sync/download page rendering through the saved authenticated browser session when enabled.
 - Unit 36 replaces the visible auth switch with a `登录`/account menu, adds multi-select/all-select chapter controls and a target-directory picker, removes the visible permission-note field and low-value plan/status buttons, and keeps download history/status in the primary workspace.
+- Unit 38 adds a local in-memory download queue owned by the running `PanelScoutUiApi` instance. The UI submits selected chapters to `/api/download/enqueue`, polls `/api/download/queue`, and leaves the user free to add more chapters while one worker thread processes jobs sequentially.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The static `ui build` shell remains a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
 - The interactive `ui serve` shell calls only the local PanelScout runner. It can trigger public or explicitly authenticated search/sync/download workflows only after user actions, and it does not call third-party websites directly from browser JavaScript.
-- Download action buttons in the interactive runner are user-triggered and send an explicit local UI confirmation marker. They do not start a background daemon.
+- Download action buttons in the interactive runner are user-triggered and send an explicit local UI confirmation marker. Queue jobs live only for the current local server process and are not restored after restart.
 
 ### MVP 5: Authenticated Session Mode
 
@@ -649,9 +653,9 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 37.
+Current accepted range: Unit 1 through Unit 38.
 
-Latest accepted Unit: Unit 37, Windows Portable Release Baseline.
+Latest accepted Unit: Unit 38, Local UI Background Download Queue.
 
 High-level milestone status:
 
@@ -659,13 +663,13 @@ High-level milestone status:
 - MVP 2: Public detail sync, chapter metadata upsert, safe CLI sync integration, richer sync result, and report output are accepted. Authenticated Session Mode remains deferred to MVP 5.
 - MVP 3: Local watchlist, public watch update checks, Markdown watch reports, and local suggested watch schedule baseline are accepted.
 - Minimum search-to-download line: Search, save, detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level for public mode and at live-smoke level for authenticated mode, including lazy-loaded scroll-reader chapters.
-- MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, UI command bridge, local-only UI runner/API, UI search/save, UI detail/chapter sync, UI download plan/run, and UI download status read are accepted at fixture-test level.
+- MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, UI command bridge, local-only UI runner/API, UI search/save, UI detail/chapter sync, UI download plan/run, UI download status read, and in-memory background download queue are accepted at fixture-test level.
 - MVP 5: Authenticated Session Mode has accepted login capture/status/logout, authenticated sync, authenticated search, authenticated chapter-page rendering, authenticated local UI reuse, and scroll-reader lazy image discovery baselines. Server-side validation and recovery UX remain pending.
 - Distribution: Windows portable zip packaging is accepted at repository/workflow level; a real GitHub Actions run on `windows-latest` is the next release gate.
 
 ## 16. Next Unit Plan
 
-Current priority: run the Windows release workflow on GitHub, download the generated portable zip on a Windows machine, and smoke-test login, search, chapter selection, folder picking, and download execution.
+Current priority: smoke-test the local UI background queue with real authenticated search, chapter multi-select/all-select, folder picking, queue append while running, and completed file verification.
 
 Planned next Units:
 
@@ -684,6 +688,7 @@ Planned next Units:
 - Unit 35: Authenticated scroll-reader image discovery. Status: accepted.
 - Unit 36: UI business-flow hardening: simplified search-first shell, login/account menu, chapter multi-select/all-select, directory picker, resilient download queue updates, clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks. Status: accepted.
 - Unit 37: Windows portable release baseline: launcher, PyInstaller spec, Windows instructions, and GitHub Actions artifact/release workflow. Status: accepted at repository/workflow level; Windows runner artifact smoke remains the release gate.
+- Unit 38: Local UI background download queue: enqueue selected chapters, poll queue status, keep one sequential worker active, and allow new tasks to be added while earlier jobs run. Status: accepted at fixture-test level.
 
 ## 17. Open Questions
 

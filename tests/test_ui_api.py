@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from threading import Event
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -19,6 +20,7 @@ FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "zaimanhua"
 SEARCH_URL = "https://manhua.zaimanhua.com/dynamic/%E4%BC%AA%E6%81%8B"
 DETAIL_URL = "https://manhua.zaimanhua.com/details/15599"
 CHAPTER_URL = "https://manhua.zaimanhua.com/view/15599/1001.html"
+CHAPTER_URL_2 = "https://manhua.zaimanhua.com/view/15599/1002.html"
 PERMISSION_NOTE = "用户确认该公开章节可用于个人本地归档。"
 
 
@@ -115,6 +117,144 @@ class PanelScoutUiApiTests(unittest.TestCase):
         self.assertEqual(status["download_status"]["label"], "已完成")
         self.assertEqual(saved_names, ["001.jpg", "002.png", "003.png", "004.webp"])
         self.assertEqual(len(image_factory.fetcher.urls), 4)
+
+    def test_download_enqueue_runs_background_queue_with_multiple_chapters(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            image_factory = FakeImageFetcherFactory()
+            api = PanelScoutUiApi(
+                config,
+                factories=UiApiFactories(
+                    search_fetcher_factory=FakeHtmlFetcherFactory(
+                        {SEARCH_URL: _fixture("search_weisample.html")}
+                    ),
+                    sync_fetcher_factory=FakeHtmlFetcherFactory(
+                        {DETAIL_URL: _fixture("details_15599_with_chapters.html")}
+                    ),
+                    download_fetcher_factory=FakeHtmlFetcherFactory(
+                        {
+                            CHAPTER_URL: _fixture("chapter_15599_1001.html"),
+                            CHAPTER_URL_2: _fixture("chapter_15599_1001.html"),
+                        }
+                    ),
+                    image_fetcher_factory=image_factory,
+                ),
+            )
+            api.search({"query": "伪恋", "save": True})
+            api.sync({"reference": "15599", "save": True})
+
+            enqueued = api.download_enqueue(
+                {
+                    "source_comic_id": "15599",
+                    "chapters": ["1", "2"],
+                    "output_root": str(root / "downloads"),
+                    "ui_confirmed": True,
+                }
+            )
+            self.assertTrue(api.wait_for_download_queue_idle(3))
+            queue = api.download_queue_status()["queue"]
+
+        self.assertTrue(enqueued["ok"])
+        self.assertEqual(enqueued["queued_count"], 2)
+        self.assertEqual(queue["summary"]["complete"], 2)
+        self.assertEqual(queue["summary"]["failed"], 0)
+        self.assertEqual([job["status"] for job in queue["jobs"]], ["complete", "complete"])
+        self.assertEqual(len(image_factory.fetcher.urls), 8)
+
+    def test_download_enqueue_accepts_new_tasks_while_worker_is_running(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            image_factory = BlockingImageFetcherFactory()
+            api = PanelScoutUiApi(
+                config,
+                factories=UiApiFactories(
+                    search_fetcher_factory=FakeHtmlFetcherFactory(
+                        {SEARCH_URL: _fixture("search_weisample.html")}
+                    ),
+                    sync_fetcher_factory=FakeHtmlFetcherFactory(
+                        {DETAIL_URL: _fixture("details_15599_with_chapters.html")}
+                    ),
+                    download_fetcher_factory=FakeHtmlFetcherFactory(
+                        {
+                            CHAPTER_URL: _fixture("chapter_15599_1001.html"),
+                            CHAPTER_URL_2: _fixture("chapter_15599_1001.html"),
+                        }
+                    ),
+                    image_fetcher_factory=image_factory,
+                ),
+            )
+            api.search({"query": "伪恋", "save": True})
+            api.sync({"reference": "15599", "save": True})
+
+            first = api.download_enqueue(
+                {
+                    "source_comic_id": "15599",
+                    "chapters": ["1"],
+                    "output_root": str(root / "downloads"),
+                    "ui_confirmed": True,
+                }
+            )
+            self.assertTrue(image_factory.fetcher.started.wait(3))
+            second = api.download_enqueue(
+                {
+                    "source_comic_id": "15599",
+                    "chapters": ["2"],
+                    "output_root": str(root / "downloads"),
+                    "ui_confirmed": True,
+                }
+            )
+            running_queue = api.download_queue_status()["queue"]
+            image_factory.fetcher.release.set()
+            self.assertTrue(api.wait_for_download_queue_idle(5))
+            complete_queue = api.download_queue_status()["queue"]
+
+        self.assertEqual(first["queued_count"], 1)
+        self.assertEqual(second["queued_count"], 1)
+        self.assertEqual(running_queue["summary"]["total"], 2)
+        self.assertEqual(running_queue["summary"]["running"], 1)
+        self.assertEqual(running_queue["summary"]["pending"], 1)
+        self.assertEqual(complete_queue["summary"]["complete"], 2)
+        self.assertEqual(complete_queue["summary"]["failed"], 0)
+
+    def test_download_enqueue_validates_all_chapters_before_starting_worker(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            image_factory = FakeImageFetcherFactory()
+            api = PanelScoutUiApi(
+                config,
+                factories=UiApiFactories(
+                    search_fetcher_factory=FakeHtmlFetcherFactory(
+                        {SEARCH_URL: _fixture("search_weisample.html")}
+                    ),
+                    sync_fetcher_factory=FakeHtmlFetcherFactory(
+                        {DETAIL_URL: _fixture("details_15599_with_chapters.html")}
+                    ),
+                    download_fetcher_factory=FakeHtmlFetcherFactory(
+                        {CHAPTER_URL: _fixture("chapter_15599_1001.html")}
+                    ),
+                    image_fetcher_factory=image_factory,
+                ),
+            )
+            api.search({"query": "伪恋", "save": True})
+            api.sync({"reference": "15599", "save": True})
+
+            with self.assertRaises(UiApiError) as error:
+                api.download_enqueue(
+                    {
+                        "source_comic_id": "15599",
+                        "chapters": ["1", "missing"],
+                        "output_root": str(root / "downloads"),
+                        "ui_confirmed": True,
+                    }
+                )
+            queue = api.download_queue_status()["queue"]
+
+        self.assertEqual(error.exception.status_code, 404)
+        self.assertEqual(queue["summary"]["total"], 0)
+        self.assertEqual(image_factory.fetcher.urls, [])
 
     def test_download_status_reads_partial_files_without_fetching(self):
         with TemporaryDirectory() as directory:
@@ -279,10 +419,12 @@ class PanelScoutUiApiTests(unittest.TestCase):
                 json.dumps({"query": "伪恋", "save": True}).encode("utf-8"),
             )
             invalid = app.dispatch("POST", "/api/search", b"[]")
+            queue = app.dispatch("GET", "/api/download/queue")
 
         self.assertEqual(html.status_code, 200)
         self.assertIn("搜索并保存", html.body.decode("utf-8"))
-        self.assertIn("/api/download/run", html.body.decode("utf-8"))
+        self.assertIn("/api/download/enqueue", html.body.decode("utf-8"))
+        self.assertIn("/api/download/queue", html.body.decode("utf-8"))
         self.assertIn("/api/auth/login", html.body.decode("utf-8"))
         self.assertIn("/api/auth/logout", html.body.decode("utf-8"))
         self.assertEqual(auth_status.status_code, 200)
@@ -290,6 +432,8 @@ class PanelScoutUiApiTests(unittest.TestCase):
         self.assertEqual(search.status_code, 200)
         self.assertIn("伪恋同盟", search.body.decode("utf-8"))
         self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(queue.status_code, 200)
+        self.assertEqual(_json(queue)["queue"]["summary"]["total"], 0)
 
     def test_serve_local_ui_rejects_non_127_host_before_binding(self):
         with TemporaryDirectory() as directory:
@@ -351,6 +495,28 @@ class FakeImageFetcher:
             content_type=f"image/{extension}",
             content=f"image bytes for {url}".encode("utf-8"),
         )
+
+
+class BlockingImageFetcherFactory:
+    def __init__(self) -> None:
+        self.fetcher = BlockingImageFetcher()
+        self.configs = []
+
+    def __call__(self, config):
+        self.configs.append(config)
+        return self.fetcher
+
+
+class BlockingImageFetcher(FakeImageFetcher):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = Event()
+        self.release = Event()
+
+    def fetch_image(self, url: str) -> FetchedImage:
+        self.started.set()
+        self.release.wait(5)
+        return super().fetch_image(url)
 
 
 class FakeAuthLoginRunner:

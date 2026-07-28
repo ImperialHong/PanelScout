@@ -55,6 +55,8 @@ class UiHttpApplication:
                     for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
                 }
                 return _json_response(self.api.download_status(payload))
+            if method == "GET" and parsed.path == "/api/download/queue":
+                return _json_response(self.api.download_queue_status())
             if method == "POST":
                 payload = _json_payload(body)
                 if parsed.path == "/api/auth/login":
@@ -69,6 +71,8 @@ class UiHttpApplication:
                     return _json_response(self.api.download_plan(payload))
                 if parsed.path == "/api/download/run":
                     return _json_response(self.api.download_run(payload))
+                if parsed.path == "/api/download/enqueue":
+                    return _json_response(self.api.download_enqueue(payload))
                 if parsed.path == "/api/download/select-directory":
                     return _json_response(self.api.select_download_directory(payload))
                 if parsed.path == "/api/download/status":

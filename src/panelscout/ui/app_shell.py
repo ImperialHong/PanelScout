@@ -445,7 +445,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
               </div>
             </div>
             <div class="action-row">
-              <button class="primary" id="run-button" type="button">确认下载</button>
+              <button class="primary" id="run-button" type="button">加入队列</button>
             </div>
           </div>
           <div class="card" id="queue">
@@ -477,6 +477,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       selectedComic: null,
       chapters: [],
       queue: [],
+      queuePollingTimer: null,
       busy: false,
       authBusy: false,
       authenticated: false,
@@ -823,52 +824,67 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       updateControls();
     }}
 
-    function addQueueEntry(entry) {{
-      const queued = {{
-        id: `${{Date.now()}}-${{state.queue.length}}`,
-        time: new Date().toLocaleTimeString(),
-        title: state.selectedComic?.title || entry.title || '未知漫画',
-        chapter: entry.chapter || selectedChapters().join('，') || '未选择章节',
-        ...entry
+    function queueEntryFromJob(job) {{
+      const complete = job.status === 'complete';
+      const failed = job.status === 'failed';
+      let detail = '';
+      if (job.status === 'pending') {{
+        detail = '等待后台下载';
+      }} else if (job.status === 'running') {{
+        detail = '正在保存图片';
+      }} else if (typeof job.saved_count !== 'undefined' && job.saved_count !== null) {{
+        detail = `保存 ${{job.saved_count || 0}}，跳过 ${{job.skipped_count || 0}}，失败 ${{job.failed_count || 0}}`;
+      }} else if (job.error) {{
+        detail = friendlyError(job.error);
+      }}
+      return {{
+        id: job.id,
+        title: job.comic_title || '未知漫画',
+        chapter: job.chapter_title || '未选择章节',
+        status: job.status_label || job.status || '已记录',
+        ok: complete ? true : failed ? false : null,
+        tone: complete ? 'ok' : failed ? 'bad' : '',
+        detail,
+        path: job.chapter_directory || job.output_root,
+        time: job.created_at ? new Date(job.created_at).toLocaleTimeString() : ''
       }};
-      state.queue.unshift(queued);
-      state.queue = state.queue.slice(0, 200);
-      renderQueue();
-      return queued.id;
     }}
 
-    function updateQueueEntry(id, patch) {{
-      const index = state.queue.findIndex(entry => entry.id === id);
-      if (index === -1) {{
+    function renderQueueSnapshot(queue) {{
+      state.queue = (queue?.jobs || []).map(queueEntryFromJob);
+      renderQueue();
+    }}
+
+    function queueHasActive(queue) {{
+      return Boolean(queue?.summary?.active);
+    }}
+
+    function startQueuePolling() {{
+      if (state.queuePollingTimer) {{
         return;
       }}
-      state.queue[index] = {{
-        ...state.queue[index],
-        ...patch
-      }};
-      renderQueue();
+      state.queuePollingTimer = window.setInterval(refreshQueue, 1500);
     }}
 
-    function queuePatchFromDownloadStatus(data, fallbackError = '') {{
-      const status = data?.download_status;
-      if (!status) {{
-        return null;
+    function stopQueuePolling() {{
+      if (!state.queuePollingTimer) {{
+        return;
       }}
-      const complete = status.state === 'complete';
-      return {{
-        status: status.label || (complete ? '已完成' : '需处理'),
-        ok: complete,
-        tone: complete ? 'ok' : status.state === 'partial' ? '' : 'bad',
-        detail: `已保存 ${{status.saved_count || 0}}，部分 ${{status.partial_count || 0}}${{fallbackError ? '；' + fallbackError : ''}}`,
-        path: status.chapter_directory
-      }};
+      window.clearInterval(state.queuePollingTimer);
+      state.queuePollingTimer = null;
     }}
 
-    async function readDownloadStatusQuietly(payload) {{
+    async function refreshQueue() {{
       try {{
-        return await api('/api/download/status', payload);
+        const data = await apiGet('/api/download/queue');
+        renderQueueSnapshot(data.queue);
+        if (queueHasActive(data.queue)) {{
+          startQueuePolling();
+        }} else {{
+          stopQueuePolling();
+        }}
       }} catch (error) {{
-        return null;
+        stopQueuePolling();
       }}
     }}
 
@@ -944,10 +960,10 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       updateControls();
     }}
 
-    function downloadPayload(chapter) {{
+    function downloadPayload(chapters) {{
       return {{
         source_comic_id: document.getElementById('source-comic-id').value,
-        chapter,
+        chapters,
         output_root: document.getElementById('download-root').value,
         ui_confirmed: true,
         ...authPayload()
@@ -1014,70 +1030,20 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
         showMessage('请选择至少一话。', false);
         return;
       }}
-      setBusy(true, chapters.length > 1 ? `正在下载 ${{chapters.length}} 话。` : '正在下载图片。');
-      let successCount = 0;
-      let failedCount = 0;
-      let lastData = null;
-      for (const chapter of chapters) {{
-        const payload = downloadPayload(chapter);
-        const queueId = addQueueEntry({{
-          chapter,
-          status: '下载中',
-          detail: '正在保存图片',
-          path: payload.output_root
-        }});
-        try {{
-          const data = await api('/api/download/run', payload);
-          lastData = data;
-          if (data.ok) {{
-            successCount += 1;
-          }} else {{
-            failedCount += 1;
-          }}
-          updateQueueEntry(queueId, {{
-            status: data.ok ? '已完成' : '需处理',
-            ok: data.ok,
-            tone: data.ok ? 'ok' : 'bad',
-            detail: `保存 ${{data.saved_count}}，跳过 ${{data.skipped_count}}，失败 ${{data.failed_count}}`,
-            path: data.chapter_directory
-          }});
-        }} catch (error) {{
-          const statusData = await readDownloadStatusQuietly(payload);
-          const statusPatch = queuePatchFromDownloadStatus(
-            statusData,
-            friendlyError(error.message)
-          );
-          if (statusPatch) {{
-            updateQueueEntry(queueId, statusPatch);
-            lastData = statusData;
-            if (statusPatch.ok) {{
-              successCount += 1;
-            }} else {{
-              failedCount += 1;
-            }}
-          }} else {{
-            const message = friendlyError(error.message);
-            failedCount += 1;
-            updateQueueEntry(queueId, {{
-              status: '需处理',
-              ok: false,
-              tone: 'bad',
-              detail: message,
-              path: payload.output_root
-            }});
-          }}
+      setBusy(true, chapters.length > 1 ? `正在加入 ${{chapters.length}} 话到队列。` : '正在加入下载队列。');
+      try {{
+        const data = await api('/api/download/enqueue', downloadPayload(chapters));
+        renderQueueSnapshot(data.queue);
+        if (queueHasActive(data.queue)) {{
+          startQueuePolling();
         }}
+        showOutput(data);
+        showMessage(`已加入下载队列：${{data.queued_count}} 话。`);
+      }} catch (error) {{
+        showMessage(friendlyError(error.message), false);
+      }} finally {{
+        setBusy(false);
       }}
-      if (lastData) {{
-        showOutput(lastData);
-      }}
-      showMessage(
-        chapters.length > 1
-          ? `下载完成：成功 ${{successCount}} 话，需处理 ${{failedCount}} 话。`
-          : failedCount ? '下载需要处理。' : '下载任务已完成。',
-        failedCount === 0
-      );
-      setBusy(false);
     }});
 
     document.getElementById('account-button').addEventListener('click', () => {{
@@ -1164,6 +1130,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
     renderAccount();
     renderQueue();
     refreshAuthStatus();
+    refreshQueue();
     refreshState();
   </script>
 </body>
