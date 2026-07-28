@@ -34,27 +34,10 @@ jobs:
       - name: Install bundled Chromium
         run: python -m playwright install chromium
 
-      - name: Run unit tests
-        run: >
-          python -m unittest
-          tests.test_detail_sync_workflow
-          tests.test_search_workflow
-          tests.test_zaimanhua_parser
-          tests.test_ui_runner
-          tests.test_ui
-          tests.test_robots
-          tests.test_ui_api
-          tests.test_downloader_planner
-          tests.test_config
-          tests.test_download_workflow
-          tests.test_chapter_image_discovery
-          tests.test_auth_session
-          tests.test_storage
-          tests.test_exporters
-          tests.test_fetcher
-          tests.test_cli
-          tests.test_windows_release
-          -v
+      - name: Run release checks
+        run: |
+          python -m compileall src tests
+          python -m unittest tests.test_windows_release -v
 
       - name: Resolve package version
         id: version

@@ -291,7 +291,7 @@ Current baseline:
 
 - Unit 37 adds `panelscout.windows_launcher`, a double-click-friendly launcher that starts `serve_local_ui` on `127.0.0.1`, opens the default browser, and keeps the console window visible while the app runs.
 - Unit 37 adds a PyInstaller spec under `packaging/windows/` and a GitHub Actions workflow for `windows-latest`.
-- The workflow installs the optional packaging dependencies, sets `PLAYWRIGHT_BROWSERS_PATH=0`, installs Chromium with Playwright, runs the non-live unit suite, builds `PanelScout.exe`, copies Windows instructions into `dist/PanelScout`, zips the folder, uploads the artifact, and publishes it to GitHub Releases when the build is triggered by a `v*` tag.
+- The workflow installs the optional packaging dependencies, sets `PLAYWRIGHT_BROWSERS_PATH=0`, installs Chromium with Playwright, runs Windows release checks, builds `PanelScout.exe`, copies Windows instructions into `dist/PanelScout`, zips the folder, uploads the artifact, and publishes it to GitHub Releases when the build is triggered by a `v*` tag.
 
 Rules:
 

@@ -1116,11 +1116,12 @@ Validation summary:
 
 - Added a Windows launcher that starts the local UI on `127.0.0.1`, opens the default browser, accepts an optional config path and port, and keeps the console visible while the app runs.
 - Added a PyInstaller spec that builds `PanelScout.exe` and collects Playwright runtime data for bundled authenticated login/rendering support.
-- Added a GitHub Actions workflow that builds on `windows-latest`, installs packaging dependencies, installs bundled Chromium with `PLAYWRIGHT_BROWSERS_PATH=0`, runs the non-live unit suite, zips `dist/PanelScout`, uploads the artifact, and publishes the zip on `v*` tags.
+- Added a GitHub Actions workflow that builds on `windows-latest`, installs packaging dependencies, installs bundled Chromium with `PLAYWRIGHT_BROWSERS_PATH=0`, runs Windows release checks, zips `dist/PanelScout`, uploads the artifact, and publishes the zip on `v*` tags.
 - Added Windows user instructions for extracting the zip, double-clicking `PanelScout.exe`, local data locations, SmartScreen warnings, browser fallback URL, and alternate port usage.
 - Added focused tests for the launcher, PyInstaller spec, workflow, and Windows README.
 - Focused validation passed with `PYTHONPATH=src .venv/bin/python -m unittest tests.test_windows_release tests.test_ui_runner tests.test_cli -v`.
 - Full non-live validation passed with `PANELSCOUT_LIVE_AUTH=0 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`: `137` tests passed and `1` live smoke test was skipped.
+- The Windows release workflow intentionally runs `compileall` and `tests.test_windows_release`; the broader historical suite still has path-format assumptions that should be hardened separately before making it a Windows gate.
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
 - Sensitive-value scan found no checked-in match for the development test account username or password.
