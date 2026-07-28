@@ -10,6 +10,7 @@ from panelscout.auth.session import (
     BrowserLoginResult,
     auth_start_url,
     default_auth_session_path,
+    run_browser_credential_login,
     run_manual_browser_login,
 )
 
@@ -23,5 +24,6 @@ __all__ = [
     "BrowserLoginResult",
     "auth_start_url",
     "default_auth_session_path",
+    "run_browser_credential_login",
     "run_manual_browser_login",
 ]

@@ -43,6 +43,12 @@ class UiHttpApplication:
                 return _html_response(html)
             if method == "GET" and parsed.path == "/api/state":
                 return _json_response(self.api.state())
+            if method == "GET" and parsed.path == "/api/auth/status":
+                payload = {
+                    key: values[-1]
+                    for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+                }
+                return _json_response(self.api.auth_status(payload))
             if method == "GET" and parsed.path == "/api/download/status":
                 payload = {
                     key: values[-1]
@@ -51,6 +57,10 @@ class UiHttpApplication:
                 return _json_response(self.api.download_status(payload))
             if method == "POST":
                 payload = _json_payload(body)
+                if parsed.path == "/api/auth/login":
+                    return _json_response(self.api.auth_login(payload))
+                if parsed.path == "/api/auth/logout":
+                    return _json_response(self.api.auth_logout(payload))
                 if parsed.path == "/api/search":
                     return _json_response(self.api.search(payload))
                 if parsed.path == "/api/sync":
@@ -59,6 +69,8 @@ class UiHttpApplication:
                     return _json_response(self.api.download_plan(payload))
                 if parsed.path == "/api/download/run":
                     return _json_response(self.api.download_run(payload))
+                if parsed.path == "/api/download/select-directory":
+                    return _json_response(self.api.select_download_directory(payload))
                 if parsed.path == "/api/download/status":
                     return _json_response(self.api.download_status(payload))
         except UiApiError as error:

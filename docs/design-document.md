@@ -240,30 +240,32 @@ Recommended command flow:
 - `panelscout search "伪恋同盟" --auth [zaimanhua] --save`: Reuse the saved session for JavaScript-rendered search.
 - `panelscout sync 15599 --auth [zaimanhua] --save`: Reuse the saved session for metadata and chapter sync.
 - `panelscout download plan/run 15599 --chapter "第01话" --auth [zaimanhua]`: Reuse the saved session while rendering selected chapter pages.
-- `panelscout ui serve`: Start the local UI; the `登录会话` switch sends the same explicit auth request to the local runner.
+- `panelscout ui serve`: Start the local UI; the right-side `登录` button captures a local browser storage-state session, then the account menu exposes `退出登录`.
 
 Current baseline:
 
 - Unit 30 starts Authenticated Session Mode with `panelscout auth login/status/logout`.
 - `auth login` requires explicit acknowledgement that local storage-state files contain sensitive cookies/session data.
-- `auth login` uses optional Playwright browser capture when the auth extra is installed; it never asks for usernames or passwords.
+- CLI `auth login` uses optional Playwright browser capture when the auth extra is installed; it never asks for usernames or passwords.
 - `auth status` currently reads local metadata and whether the storage-state file exists. Server-side validation is not wired yet.
 - `auth logout` deletes the recorded local storage-state file and SQLite session metadata.
 - Unit 31 wires `sync --auth` to the saved storage-state file through an optional Playwright authenticated HTML fetcher.
 - Unit 32 adds a default-skipped live authenticated smoke test harness that reads credentials only from `.env.local` or process environment when `PANELSCOUT_LIVE_AUTH=1`.
 - Unit 33 wires `search --auth` and `download plan/run --auth` to the saved storage-state file for JavaScript-rendered search and chapter-page rendering.
-- Unit 34 wires the interactive local UI search, sync, download plan, and download run requests to the same authenticated fetcher path when the `登录会话` switch is enabled.
+- Unit 34 wires the interactive local UI search, sync, download plan, and download run requests to the same authenticated fetcher path when a saved session is enabled.
 - Unit 35 switches supported authenticated reader pages to `滚动阅读` and snapshots rendered DOM/network image URLs before chapter image discovery.
+- Unit 36 simplifies the initial UI, replaces the visible auth switch with a `登录`/account menu, adds a local download-directory picker, keeps the queue updated during download execution, and lets the local UI capture/logout the saved session without storing plaintext passwords.
 - Authenticated download page rendering filters out reader chrome, logos, and layout images before planning files, then keeps image byte fetching on the existing conservative fetcher.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
 - Public search/download workflows remain available when auth is disabled.
 
 Rules:
 
-- The user enters credentials directly into the website in a local browser window.
+- CLI manual login has the user enter credentials directly into the website in a local browser window.
+- Local UI credential login accepts credentials only for the active local request, submits them to the configured source through Playwright, and saves only browser storage state.
 - The development live smoke test may receive a dedicated test account through git-ignored local environment variables.
 - PanelScout never commits, logs, stores, or uploads plaintext credentials.
-- CAPTCHA or additional verification must be solved manually by the user.
+- CAPTCHA or additional verification must fail clearly or be handled by falling back to manual browser login.
 - If a session expires, PanelScout pauses and asks the user to log in again.
 - Session state is saved locally as cookies and browser storage.
 - Session files should be excluded from git.
@@ -476,11 +478,12 @@ MVP 4 current implementation note:
 - Unit 27 adds interactive UI calls for public search/save and public detail/chapter sync.
 - Unit 28 adds interactive UI calls for explicit download plan/run using the accepted downloader workflow and permission note.
 - Unit 29 adds interactive UI status reads for saved and partial files in the selected chapter directory.
-- Unit 34 adds an explicit `登录会话` switch to the interactive local UI and routes search/sync/download page rendering through the saved authenticated browser session when enabled.
+- Unit 34 routes interactive local UI search/sync/download page rendering through the saved authenticated browser session when enabled.
+- Unit 36 replaces the visible auth switch with a `登录`/account menu, adds a target-directory picker, removes the visible permission-note field, and keeps download history/status in the primary workspace.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The static `ui build` shell remains a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
 - The interactive `ui serve` shell calls only the local PanelScout runner. It can trigger public or explicitly authenticated search/sync/download workflows only after user actions, and it does not call third-party websites directly from browser JavaScript.
-- Download action buttons in the interactive runner are user-triggered and require the permission note field. They do not start a queue or background daemon.
+- Download action buttons in the interactive runner are user-triggered and send an explicit local UI confirmation marker. They do not start a background daemon.
 
 ### MVP 5: Authenticated Session Mode
 
@@ -649,7 +652,7 @@ Planned next Units:
 - Unit 33: Authenticated search-to-download live smoke. Status: accepted.
 - Unit 34: Authenticated local UI/API reuse. Status: accepted.
 - Unit 35: Authenticated scroll-reader image discovery. Status: accepted.
-- Unit 36: UI business-flow hardening: clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks.
+- Unit 36: UI business-flow hardening: simplified search-first shell, login/account menu, directory picker, resilient download queue updates, clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks. Status: in progress.
 
 ## 17. Open Questions
 

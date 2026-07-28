@@ -5,7 +5,6 @@ from __future__ import annotations
 from html import escape
 import json
 
-from panelscout.ui.shell import DOWNLOAD_PERMISSION_NOTE
 from panelscout.ui.state import LocalUiState
 
 
@@ -19,7 +18,6 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
     selected = state.selected_comic
     search_value = selected.title if selected is not None else ""
     source_comic_id = selected.source_comic_id if selected is not None else ""
-    first_chapter = state.chapters[0].title if state.chapters else ""
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -39,9 +37,9 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       --chip: #eef3f8;
       --ok: #127a45;
       --bad: #aa2d2d;
-      --warn: #9a5a00;
     }}
     * {{ box-sizing: border-box; }}
+    [hidden] {{ display: none !important; }}
     body {{
       margin: 0;
       background: var(--bg);
@@ -59,28 +57,58 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       background: var(--panel);
     }}
     header strong {{ min-width: 128px; flex: 0 0 auto; }}
-    nav {{ display: flex; flex: 1 1 auto; min-width: 0; gap: 6px; overflow-x: auto; }}
-    nav a {{
-      color: var(--text);
-      text-decoration: none;
-      padding: 12px 10px 10px;
-      border-bottom: 2px solid transparent;
-      white-space: nowrap;
+    nav {{
+      display: flex;
+      flex: 1 1 auto;
+      min-width: 0;
+      gap: 6px;
+      overflow-x: auto;
     }}
-    nav a:first-child {{ color: var(--accent); border-color: var(--accent); }}
-    .session-toggle {{
+    .account {{
+      position: relative;
+      margin-left: auto;
+      flex: 0 0 auto;
+    }}
+    .account-button {{
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      margin-left: auto;
-      color: var(--muted);
-      flex: 0 0 auto;
+      justify-content: center;
+      max-width: 190px;
       white-space: nowrap;
     }}
-    .session-toggle input {{
-      min-height: 16px;
-      width: 16px;
-      padding: 0;
+    .account-button .account-label {{
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .account-popover {{
+      position: absolute;
+      top: 42px;
+      right: 0;
+      z-index: 20;
+      width: min(300px, calc(100vw - 24px));
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 16px 36px rgb(23 32 42 / 16%);
+      padding: 10px;
+    }}
+    .account-popover form {{
+      display: grid;
+      gap: 8px;
+    }}
+    .account-popover input {{
+      width: 100%;
+    }}
+    .account-actions {{
+      display: flex;
+      gap: 8px;
+    }}
+    .account-actions button {{
+      flex: 1 1 0;
+    }}
+    .account-message {{
+      margin: 2px 0 0;
+      font-size: 12px;
     }}
     main {{
       display: grid;
@@ -88,17 +116,30 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       min-height: calc(100vh - 48px);
       align-items: start;
     }}
-    aside, .workspace {{ min-width: 0; padding: 12px; }}
-    .workspace {{ display: grid; gap: 12px; align-content: start; }}
-    aside {{ border-right: 1px solid var(--line); background: #fbfcfd; }}
-    .toolbar, .download-grid {{
+    main.status-only {{ grid-template-columns: 1fr; }}
+    main.status-only aside {{ display: none; }}
+    aside, .workspace {{
+      min-width: 0;
+      padding: 12px;
+    }}
+    aside {{
+      border-right: 1px solid var(--line);
+      background: #fbfcfd;
+    }}
+    .workspace {{
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }}
+    .side-view, .workspace-view {{ min-width: 0; }}
+    .toolbar, .download-grid, .path-row {{
       display: grid;
       grid-template-columns: 1fr auto;
       gap: 8px;
       margin-bottom: 10px;
     }}
-    .download-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-    #download .download-grid {{ grid-template-columns: 1fr; }}
+    .download-grid {{ grid-template-columns: 1fr; }}
+    .path-row {{ margin-bottom: 0; }}
     input, select, button {{
       min-width: 0;
       min-height: 34px;
@@ -109,6 +150,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       padding: 0 10px;
       font: inherit;
     }}
+    input[type="hidden"] {{ display: none; }}
     button {{
       cursor: pointer;
       font-weight: 600;
@@ -116,6 +158,16 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
     button.primary {{ border-color: var(--accent); background: var(--accent); color: white; }}
     button.secondary {{ background: var(--soft); border-color: #f5c49b; }}
     button:disabled {{ cursor: not-allowed; opacity: 0.62; }}
+    nav button {{
+      min-height: 48px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      background: transparent;
+      padding: 12px 10px 10px;
+      white-space: nowrap;
+    }}
+    nav button.active {{ color: var(--accent); border-color: var(--accent); }}
     .card {{
       border: 1px solid var(--line);
       border-radius: 8px;
@@ -134,7 +186,6 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
     }}
     h2 {{ font-size: 16px; margin: 0 0 10px; }}
     .card-header h2 {{ margin: 0; }}
-    h3 {{ font-size: 14px; margin: 0 0 8px; }}
     .muted, .empty {{ color: var(--muted); }}
     .badge {{
       display: inline-flex;
@@ -148,29 +199,52 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       font-weight: 600;
       white-space: nowrap;
     }}
+    .badge.ok {{ color: var(--ok); }}
+    .badge.bad {{ color: var(--bad); }}
     .list {{ display: grid; gap: 8px; }}
-    .comic {{
+    .comic-card {{
       width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 36px;
+      gap: 8px;
+      align-items: center;
       text-align: left;
       background: var(--panel);
       border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
     }}
-    .comic.selected {{
+    .comic-card.selected {{
       border-color: var(--accent);
       background: var(--soft);
       box-shadow: inset 3px 0 0 var(--accent);
     }}
-    .comic strong, .comic span, td {{ overflow-wrap: anywhere; }}
-    .comic strong {{ display: block; font-size: 15px; }}
-    .split {{
+    .comic-summary {{ min-width: 0; }}
+    .comic-summary strong, .comic-summary span {{ overflow-wrap: anywhere; }}
+    .comic-summary strong {{ display: block; font-size: 15px; }}
+    .icon-button {{
+      width: 34px;
+      height: 34px;
+      min-height: 34px;
+      display: inline-grid;
+      place-items: center;
+      padding: 0;
+      border-color: #f5c49b;
+      background: var(--soft);
+      color: var(--accent);
+    }}
+    .icon-button svg {{
+      width: 18px;
+      height: 18px;
+      stroke: currentColor;
+    }}
+    .download-shell {{
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      grid-template-columns: minmax(280px, 34%) minmax(420px, 1fr);
       gap: 12px;
       align-items: start;
-      min-width: 0;
     }}
-    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-    th, td {{ border-bottom: 1px solid var(--line); padding: 7px 6px; text-align: left; vertical-align: top; }}
+    #download-setup[hidden] + #queue {{ grid-column: 1 / -1; }}
     .chapter-list {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
@@ -178,6 +252,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       max-height: 320px;
       overflow: auto;
       padding-right: 2px;
+      margin-bottom: 10px;
     }}
     .chapter-list label {{
       display: flex;
@@ -190,8 +265,31 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       padding: 6px 8px;
     }}
     .chapter-list label.selected {{ border-color: var(--accent); background: var(--soft); }}
-    .chapter-list input {{ min-height: 16px; width: 16px; padding: 0; }}
+    .chapter-list input {{
+      min-height: 16px;
+      width: 16px;
+      padding: 0;
+    }}
     .action-row {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+    .queue-list {{ display: grid; gap: 8px; }}
+    .queue-item {{
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fbfcfd;
+      padding: 8px;
+      min-width: 0;
+    }}
+    .queue-item header {{
+      height: auto;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }}
+    .queue-item strong, .queue-item p {{ overflow-wrap: anywhere; }}
+    .queue-item p {{ margin: 4px 0 0; }}
     .status-ok {{ color: var(--ok); font-weight: 700; }}
     .status-bad {{ color: var(--bad); font-weight: 700; }}
     .summary-grid {{
@@ -213,7 +311,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
     .metric.ok strong {{ color: var(--ok); }}
     pre {{
       min-height: 96px;
-      max-height: 240px;
+      max-height: 420px;
       overflow: auto;
       white-space: pre-wrap;
       border: 1px solid var(--line);
@@ -223,15 +321,22 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       font-size: 12px;
     }}
     @media (max-width: 900px) {{
-      main, .split {{ grid-template-columns: 1fr; }}
-      aside {{ border-right: 0; border-bottom: 1px solid var(--line); }}
+      main {{
+        display: block;
+        min-height: 0;
+      }}
+      .download-shell {{ grid-template-columns: 1fr; }}
+      aside {{
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }}
       .toolbar, .chapter-list, .download-grid {{ grid-template-columns: 1fr; }}
     }}
     @media (max-width: 520px) {{
       header {{ gap: 8px; padding: 0 10px; }}
       header strong {{ min-width: auto; }}
-      nav a {{ padding-inline: 8px; }}
-      .session-toggle span {{ display: none; }}
+      nav button {{ padding-inline: 8px; }}
+      .account-button {{ max-width: 116px; padding-inline: 8px; }}
     }}
   </style>
 </head>
@@ -239,74 +344,95 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
   <header>
     <strong>PanelScout 格探</strong>
     <nav aria-label="主导航">
-      <a href="#search">搜索</a>
-      <a href="#library">本地库</a>
-      <a href="#detail">详情</a>
-      <a href="#download">下载</a>
-      <a href="#status">状态</a>
+      <button class="nav-tab active" type="button" data-view="search">搜索</button>
+      <button class="nav-tab" type="button" data-view="library">本地库</button>
+      <button class="nav-tab" type="button" data-view="status">状态</button>
     </nav>
-    <label class="session-toggle" title="使用本机已保存的登录会话">
-      <input id="auth-mode" type="checkbox" checked aria-label="使用登录会话">
-      <span>登录会话</span>
-    </label>
+    <div class="account" id="account-menu">
+      <button class="account-button" id="account-button" type="button" aria-expanded="false">
+        <span class="account-label" id="account-label">登录</span>
+      </button>
+      <div class="account-popover" id="login-popover" hidden>
+        <form id="login-form">
+          <input id="login-username" autocomplete="username" placeholder="用户名" aria-label="用户名">
+          <input id="login-password" type="password" autocomplete="current-password" placeholder="密码" aria-label="密码">
+          <p class="muted account-message">仅保存本机会话，不保存密码。</p>
+          <p id="login-message" class="account-message" hidden></p>
+          <div class="account-actions">
+            <button class="primary" id="login-submit" type="submit">登录</button>
+            <button id="login-cancel" type="button">取消</button>
+          </div>
+        </form>
+      </div>
+      <div class="account-popover" id="account-popover" hidden>
+        <p class="muted account-message" id="account-status">已登录</p>
+        <button id="logout-button" type="button">退出登录</button>
+      </div>
+    </div>
   </header>
-  <main>
-    <aside id="search">
-      <form class="toolbar" id="search-form">
-        <input id="search-query" type="search" value="{_e(search_value)}" aria-label="搜索关键词">
-        <button class="primary" type="submit">搜索并保存</button>
-      </form>
-      <div class="card">
-        <div class="card-header">
-          <h2>搜索结果</h2>
-          <span class="badge" id="search-count">0 项</span>
-        </div>
-        <div class="list" id="search-results"></div>
-      </div>
-      <div class="card" id="library">
-        <div class="card-header">
-          <h2>本地库</h2>
-          <span class="badge" id="library-count">0 项</span>
-        </div>
-        <div class="list" id="library-list"></div>
-      </div>
-    </aside>
-    <section class="workspace">
-      <div class="split">
-        <div class="card" id="detail">
-          <div class="card-header">
-            <h2>漫画详情</h2>
-            <span class="badge" id="detail-badge">{_e(source_comic_id or "未选择")}</span>
-          </div>
-          <div class="download-grid">
-            <input id="source-comic-id" value="{_e(source_comic_id)}" aria-label="来源漫画 ID">
-            <button class="secondary" id="sync-button" type="button">同步详情</button>
-          </div>
-          <table>
-            <tbody id="detail-table"></tbody>
-          </table>
-        </div>
+  <main id="app-main">
+    <aside id="side-panel">
+      <section class="side-view" id="search-view">
+        <form class="toolbar" id="search-form">
+          <input id="search-query" type="search" value="{_e(search_value)}" aria-label="搜索关键词">
+          <button class="primary" type="submit">搜索并保存</button>
+        </form>
         <div class="card">
           <div class="card-header">
-            <h2>章节选择</h2>
-            <span class="badge" id="chapter-count">0 话</span>
+            <h2>搜索结果</h2>
+            <span class="badge" id="search-count">0 项</span>
           </div>
-          <div class="chapter-list" id="chapter-list"></div>
+          <p id="search-message" class="muted" hidden></p>
+          <div class="list" id="search-results"></div>
         </div>
-      </div>
-      <div class="split">
-        <div class="card" id="download">
-          <h2>下载</h2>
-          <div class="download-grid">
-            <input id="download-root" value="{_e(state.download_root)}" aria-label="下载根目录">
-            <input id="permission-note" value="{_e(DOWNLOAD_PERMISSION_NOTE)}" aria-label="权限确认">
+      </section>
+      <section class="side-view" id="library-view" hidden>
+        <div class="card" id="library">
+          <div class="card-header">
+            <h2>本地库</h2>
+            <span class="badge" id="library-count">0 项</span>
           </div>
-          <div class="action-row">
-            <button id="plan-button" type="button">规划下载</button>
-            <button class="primary" id="run-button" type="button">确认下载</button>
-            <button id="status-button" type="button">读取状态</button>
+          <div class="list" id="library-list"></div>
+        </div>
+      </section>
+    </aside>
+    <section class="workspace">
+      <section class="workspace-view" id="workflow-view">
+        <div class="download-shell">
+          <div class="card" id="download-setup" hidden>
+            <div class="card-header">
+              <h2 id="download-title">下载准备</h2>
+              <span class="badge" id="chapter-count">0 话</span>
+            </div>
+            <input id="source-comic-id" type="hidden" value="{_e(source_comic_id)}">
+            <div class="chapter-list" id="chapter-list"></div>
+            <div class="download-grid">
+              <div class="path-row">
+                <input id="download-root" value="{_e(state.download_root)}" aria-label="下载根目录">
+                <button class="icon-button" id="browse-download-root" type="button" title="选择下载目录" aria-label="选择下载目录">
+                  <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v1"></path>
+                    <path d="M3 7v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7H3"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="action-row">
+              <button id="plan-button" type="button">规划下载</button>
+              <button class="primary" id="run-button" type="button">确认下载</button>
+              <button id="status-button" type="button">读取状态</button>
+            </div>
+          </div>
+          <div class="card" id="queue">
+            <div class="card-header">
+              <h2>下载队列</h2>
+              <span class="badge" id="queue-count">0 条</span>
+            </div>
+            <div class="queue-list" id="queue-list"></div>
           </div>
         </div>
+      </section>
+      <section class="workspace-view" id="status-view" hidden>
         <div class="card" id="status">
           <div class="card-header">
             <h2>运行状态</h2>
@@ -316,21 +442,58 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
           <div class="summary-grid" id="summary"></div>
           <pre id="output"></pre>
         </div>
-      </div>
+      </section>
     </section>
   </main>
   <script>
     const state = {{
-      selectedChapter: {_json_string(first_chapter)},
+      selectedChapter: "",
       selectedComicId: {_json_string(source_comic_id)},
-      busy: false
+      selectedComic: null,
+      chapters: [],
+      queue: [],
+      busy: false,
+      authBusy: false,
+      authenticated: false,
+      userId: ""
     }};
+
+    function switchView(view) {{
+      document.querySelectorAll('.nav-tab').forEach(button => {{
+        button.classList.toggle('active', button.dataset.view === view);
+      }});
+      document.getElementById('search-view').hidden = view !== 'search';
+      document.getElementById('library-view').hidden = view !== 'library';
+      document.getElementById('workflow-view').hidden = view === 'status';
+      document.getElementById('status-view').hidden = view !== 'status';
+      document.getElementById('app-main').classList.toggle('status-only', view === 'status');
+    }}
 
     function showMessage(text, ok = true) {{
       const node = document.getElementById('message');
       node.textContent = text;
       node.className = ok ? 'status-ok' : 'status-bad';
       document.getElementById('status-badge').textContent = ok ? '就绪' : '需要处理';
+    }}
+
+    function showSearchMessage(text, ok = true) {{
+      const node = document.getElementById('search-message');
+      node.hidden = !text;
+      node.textContent = text || '';
+      node.className = ok ? 'status-ok' : 'status-bad';
+    }}
+
+    function friendlyError(message) {{
+      if (message.includes('auth session not configured')) {{
+        return '登录会话未配置；请点击右上角登录按钮完成登录，或继续使用公开搜索。';
+      }}
+      if (message.includes('login did not reach authenticated page state')) {{
+        return '登录未完成；请确认用户名、密码以及网站登录校验后重试。';
+      }}
+      if (message.includes('Playwright is not installed')) {{
+        return '本地浏览器登录依赖未安装；请安装 Playwright 和 Chromium 后重试。';
+      }}
+      return message;
     }}
 
     function showOutput(value) {{
@@ -415,7 +578,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       const hasComic = Boolean(document.getElementById('source-comic-id').value.trim());
       const hasChapter = Boolean(currentChapter());
       document.querySelector('#search-form button').disabled = state.busy;
-      document.getElementById('sync-button').disabled = state.busy || !hasComic;
+      document.getElementById('browse-download-root').disabled = state.busy;
       document.getElementById('plan-button').disabled = state.busy || !hasComic || !hasChapter;
       document.getElementById('run-button').disabled = state.busy || !hasComic || !hasChapter;
       document.getElementById('status-button').disabled = state.busy || !hasComic || !hasChapter;
@@ -434,42 +597,116 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       return data;
     }}
 
+    async function apiGet(path) {{
+      const response = await fetch(path);
+      const data = await response.json();
+      if (!response.ok || data.ok === false) {{
+        throw new Error(data.error || '请求失败');
+      }}
+      return data;
+    }}
+
     function authPayload() {{
-      return document.getElementById('auth-mode').checked ? {{ auth: true }} : {{}};
+      return state.authenticated ? {{ auth: true }} : {{}};
+    }}
+
+    function hideAccountPopovers() {{
+      document.getElementById('login-popover').hidden = true;
+      document.getElementById('account-popover').hidden = true;
+      document.getElementById('account-button').setAttribute('aria-expanded', 'false');
+    }}
+
+    function renderAccount() {{
+      const label = document.getElementById('account-label');
+      const button = document.getElementById('account-button');
+      const accountStatus = document.getElementById('account-status');
+      button.classList.toggle('secondary', state.authenticated);
+      if (state.authenticated) {{
+        const userId = state.userId || '已登录';
+        label.textContent = state.userId ? `ID：${{userId}}` : userId;
+        button.title = '账号信息';
+        accountStatus.textContent = state.userId ? `用户ID：${{userId}}` : '已登录';
+      }} else {{
+        label.textContent = '登录';
+        button.title = '登录';
+        accountStatus.textContent = '未登录';
+      }}
+    }}
+
+    function showLoginMessage(text, ok = true) {{
+      const node = document.getElementById('login-message');
+      node.hidden = !text;
+      node.textContent = text || '';
+      node.className = ok ? 'account-message status-ok' : 'account-message status-bad';
+    }}
+
+    function setAuthBusy(isBusy, text = '') {{
+      state.authBusy = isBusy;
+      document.getElementById('account-button').disabled = isBusy;
+      document.getElementById('login-submit').disabled = isBusy;
+      document.getElementById('login-cancel').disabled = isBusy;
+      document.getElementById('logout-button').disabled = isBusy;
+      if (text) {{
+        showLoginMessage(text);
+      }}
+    }}
+
+    async function refreshAuthStatus() {{
+      try {{
+        const data = await apiGet('/api/auth/status');
+        const savedUserId = window.localStorage.getItem('panelscout_user_id') || '';
+        state.authenticated = Boolean(data.authenticated);
+        state.userId = state.authenticated ? savedUserId : '';
+        if (!state.authenticated) {{
+          window.localStorage.removeItem('panelscout_user_id');
+        }}
+        renderAccount();
+      }} catch (error) {{
+        state.authenticated = false;
+        state.userId = '';
+        renderAccount();
+        showMessage(friendlyError(error.message), false);
+      }}
     }}
 
     function updateComicSelectionStyles() {{
-      document.querySelectorAll('.comic').forEach(button => {{
-        button.classList.toggle('selected', button.dataset.sourceComicId === state.selectedComicId);
+      document.querySelectorAll('.comic-card').forEach(card => {{
+        card.classList.toggle('selected', card.dataset.sourceComicId === state.selectedComicId);
       }});
     }}
 
     function comicButton(comic) {{
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'comic';
-      button.dataset.sourceComicId = comic.source_comic_id;
+      const card = document.createElement('article');
+      card.className = 'comic-card';
+      card.dataset.sourceComicId = comic.source_comic_id;
       if (comic.source_comic_id === state.selectedComicId) {{
-        button.classList.add('selected');
+        card.classList.add('selected');
       }}
+
+      const summary = document.createElement('div');
+      summary.className = 'comic-summary';
       const title = document.createElement('strong');
       title.textContent = comic.title;
       const meta = document.createElement('span');
       meta.className = 'muted';
       meta.textContent = `ID：${{comic.source_comic_id}}　最新：${{comic.latest_chapter_title || '未知'}}`;
-      button.appendChild(title);
-      button.appendChild(meta);
-      button.addEventListener('click', () => {{
-        state.selectedComicId = comic.source_comic_id;
-        state.selectedChapter = '';
-        document.getElementById('source-comic-id').value = comic.source_comic_id;
-        renderDetail(comic, []);
-        updateComicSelectionStyles();
-      }});
-      return button;
+      summary.appendChild(title);
+      summary.appendChild(meta);
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'icon-button';
+      button.title = '准备下载';
+      button.setAttribute('aria-label', `准备下载 ${{comic.title}}`);
+      button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="M7 10l5 5 5-5"></path><path d="M12 15V3"></path></svg>';
+      button.addEventListener('click', () => openDownloadSetup(comic));
+
+      card.appendChild(summary);
+      card.appendChild(button);
+      return card;
     }}
 
-    function renderComics(comics, targetId) {{
+    function renderComics(comics, targetId, emptyText = '暂无数据。') {{
       const target = document.getElementById(targetId);
       const countNode = document.getElementById(targetId === 'search-results' ? 'search-count' : 'library-count');
       if (countNode) {{
@@ -479,7 +716,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       if (!comics.length) {{
         const empty = document.createElement('p');
         empty.className = 'empty';
-        empty.textContent = '暂无数据。';
+        empty.textContent = emptyText;
         target.appendChild(empty);
         return;
       }}
@@ -487,36 +724,17 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       updateComicSelectionStyles();
     }}
 
-    function renderDetail(comic, chapters) {{
-      const rows = document.getElementById('detail-table');
-      rows.replaceChildren();
-      document.getElementById('detail-badge').textContent = comic ? comic.source_comic_id : '未选择';
+    function renderDownloadSetup(comic, chapters) {{
+      const panel = document.getElementById('download-setup');
+      panel.hidden = !comic;
       if (!comic) {{
-        const row = document.createElement('tr');
-        const cell = document.createElement('td');
-        cell.className = 'empty';
-        cell.textContent = '尚未选择漫画。';
-        row.appendChild(cell);
-        rows.appendChild(row);
         renderChapters([]);
         return;
       }}
       state.selectedComicId = comic.source_comic_id;
-      [
-        ['标题', comic.title],
-        ['作者', comic.author || '未知'],
-        ['最新', comic.latest_chapter_title || '未知'],
-        ['地址', comic.detail_url || '未知']
-      ].forEach(([label, value]) => {{
-        const row = document.createElement('tr');
-        const th = document.createElement('th');
-        const td = document.createElement('td');
-        th.textContent = label;
-        td.textContent = value;
-        row.appendChild(th);
-        row.appendChild(td);
-        rows.appendChild(row);
-      }});
+      state.selectedComic = comic;
+      document.getElementById('source-comic-id').value = comic.source_comic_id;
+      document.getElementById('download-title').textContent = comic.title;
       renderChapters(chapters || []);
       updateComicSelectionStyles();
     }}
@@ -529,7 +747,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
         state.selectedChapter = '';
         const empty = document.createElement('p');
         empty.className = 'empty';
-        empty.textContent = '暂无本地章节。';
+        empty.textContent = '暂无可选章节。';
         target.appendChild(empty);
         updateControls();
         return;
@@ -558,20 +776,142 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       updateControls();
     }}
 
+    function addQueueEntry(entry) {{
+      const queued = {{
+        id: `${{Date.now()}}-${{state.queue.length}}`,
+        time: new Date().toLocaleTimeString(),
+        title: state.selectedComic?.title || entry.title || '未知漫画',
+        chapter: currentChapter() || entry.chapter || '未选择章节',
+        ...entry
+      }};
+      state.queue.unshift(queued);
+      state.queue = state.queue.slice(0, 12);
+      renderQueue();
+      return queued.id;
+    }}
+
+    function updateQueueEntry(id, patch) {{
+      const index = state.queue.findIndex(entry => entry.id === id);
+      if (index === -1) {{
+        return;
+      }}
+      state.queue[index] = {{
+        ...state.queue[index],
+        ...patch
+      }};
+      renderQueue();
+    }}
+
+    function queuePatchFromDownloadStatus(data, fallbackError = '') {{
+      const status = data?.download_status;
+      if (!status) {{
+        return null;
+      }}
+      const complete = status.state === 'complete';
+      return {{
+        status: status.label || (complete ? '已完成' : '需处理'),
+        ok: complete,
+        tone: complete ? 'ok' : status.state === 'partial' ? '' : 'bad',
+        detail: `已保存 ${{status.saved_count || 0}}，部分 ${{status.partial_count || 0}}${{fallbackError ? '；' + fallbackError : ''}}`,
+        path: status.chapter_directory
+      }};
+    }}
+
+    async function readDownloadStatusQuietly(payload) {{
+      try {{
+        return await api('/api/download/status', payload);
+      }} catch (error) {{
+        return null;
+      }}
+    }}
+
+    function renderQueue() {{
+      const target = document.getElementById('queue-list');
+      document.getElementById('queue-count').textContent = `${{state.queue.length}} 条`;
+      target.replaceChildren();
+      if (!state.queue.length) {{
+        const empty = document.createElement('p');
+        empty.className = 'empty';
+        empty.textContent = '暂无下载记录。';
+        target.appendChild(empty);
+        return;
+      }}
+      state.queue.forEach(entry => {{
+        const item = document.createElement('article');
+        item.className = 'queue-item';
+        const header = document.createElement('header');
+        const title = document.createElement('strong');
+        title.textContent = entry.title;
+        const badge = document.createElement('span');
+        const tone = entry.ok === false ? 'bad' : entry.tone;
+        badge.className = tone ? `badge ${{tone}}` : 'badge';
+        badge.textContent = entry.status || '已记录';
+        header.appendChild(title);
+        header.appendChild(badge);
+        item.appendChild(header);
+        [
+          entry.chapter,
+          entry.detail,
+          entry.path,
+          entry.time
+        ].filter(Boolean).forEach(text => {{
+          const line = document.createElement('p');
+          line.className = 'muted';
+          line.textContent = text;
+          item.appendChild(line);
+        }});
+        target.appendChild(item);
+      }});
+    }}
+
+    async function openDownloadSetup(comic) {{
+      state.selectedChapter = '';
+      state.chapters = [];
+      renderDownloadSetup(comic, []);
+      setBusy(true, `正在读取《${{comic.title}}》的章节。`);
+      try {{
+        const data = await api('/api/sync', {{
+          reference: comic.source_comic_id,
+          save: true,
+          ...authPayload()
+        }});
+        state.chapters = data.chapters || [];
+        renderDownloadSetup(data.comic, state.chapters);
+        await refreshState({{ showOutputPanel: false }});
+        showMessage('章节已载入。');
+        showOutput(data);
+      }} catch (error) {{
+        showMessage(error.message, false);
+      }} finally {{
+        setBusy(false);
+      }}
+    }}
+
     async function refreshState(options = {{ showOutputPanel: true }}) {{
       const response = await fetch('/api/state');
       const data = await response.json();
       renderComics(data.state.comics || [], 'library-list');
-      renderDetail(data.state.selected_comic, data.state.chapters || []);
       if (options.showOutputPanel) {{
         showOutput(data.state);
       }}
       updateControls();
     }}
 
+    function downloadPayload() {{
+      return {{
+        source_comic_id: document.getElementById('source-comic-id').value,
+        chapter: state.selectedChapter || document.querySelector('input[name="chapter"]:checked')?.value || '',
+        output_root: document.getElementById('download-root').value,
+        ui_confirmed: true,
+        ...authPayload()
+      }};
+    }}
+
     document.getElementById('search-form').addEventListener('submit', async event => {{
       event.preventDefault();
       setBusy(true, '正在搜索并保存。');
+      showSearchMessage('正在搜索。');
+      renderComics([], 'search-results', '正在等待搜索结果。');
       try {{
         const data = await api('/api/search', {{
           query: document.getElementById('search-query').value,
@@ -579,44 +919,39 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
           ...authPayload()
         }});
         renderComics(data.comics || [], 'search-results');
+        showSearchMessage(`搜索完成，找到 ${{(data.comics || []).length}} 项。`);
         showMessage('搜索已完成。');
         showOutput(data);
         await refreshState({{ showOutputPanel: false }});
       }} catch (error) {{
-        showMessage(error.message, false);
+        const message = friendlyError(error.message);
+        renderComics([], 'search-results');
+        showSearchMessage(message, false);
+        showMessage(message, false);
       }} finally {{
         setBusy(false);
       }}
     }});
 
-    document.getElementById('sync-button').addEventListener('click', async () => {{
-      setBusy(true, '正在同步详情和章节。');
+    document.getElementById('browse-download-root').addEventListener('click', async () => {{
+      setBusy(true, '请选择下载目录。');
       try {{
-        const data = await api('/api/sync', {{
-          reference: document.getElementById('source-comic-id').value,
-          save: true,
-          ...authPayload()
+        const input = document.getElementById('download-root');
+        const data = await api('/api/download/select-directory', {{
+          initial: input.value
         }});
-        await refreshState({{ showOutputPanel: false }});
-        renderDetail(data.comic, data.chapters || []);
-        showMessage('详情同步已完成。');
-        showOutput(data);
+        if (data.selected && data.path) {{
+          input.value = data.path;
+          showMessage('下载目录已更新。');
+        }} else {{
+          showMessage('下载目录未更改。');
+        }}
       }} catch (error) {{
-        showMessage(error.message, false);
+        showMessage(friendlyError(error.message), false);
       }} finally {{
         setBusy(false);
       }}
     }});
-
-    function downloadPayload() {{
-      return {{
-        source_comic_id: document.getElementById('source-comic-id').value,
-        chapter: state.selectedChapter || document.querySelector('input[name="chapter"]:checked')?.value || '',
-        output_root: document.getElementById('download-root').value,
-        permission_note: document.getElementById('permission-note').value,
-        ...authPayload()
-      }};
-    }}
 
     document.getElementById('plan-button').addEventListener('click', async () => {{
       setBusy(true, '正在规划下载。');
@@ -624,6 +959,12 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
         const data = await api('/api/download/plan', downloadPayload());
         showMessage('下载规划已完成。');
         showOutput(data);
+        addQueueEntry({{
+          status: '已规划',
+          tone: 'ok',
+          detail: `${{data.images_discovered}} 张图片`,
+          path: data.chapter_directory
+        }});
       }} catch (error) {{
         showMessage(error.message, false);
       }} finally {{
@@ -633,12 +974,44 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
 
     document.getElementById('run-button').addEventListener('click', async () => {{
       setBusy(true, '正在下载图片。');
+      const payload = downloadPayload();
+      const queueId = addQueueEntry({{
+        status: '下载中',
+        detail: '正在保存图片',
+        path: payload.output_root
+      }});
       try {{
-        const data = await api('/api/download/run', downloadPayload());
+        const data = await api('/api/download/run', payload);
         showMessage('下载任务已完成。', data.ok);
         showOutput(data);
+        updateQueueEntry(queueId, {{
+          status: data.ok ? '已完成' : '需处理',
+          ok: data.ok,
+          tone: data.ok ? 'ok' : 'bad',
+          detail: `保存 ${{data.saved_count}}，跳过 ${{data.skipped_count}}，失败 ${{data.failed_count}}`,
+          path: data.chapter_directory
+        }});
       }} catch (error) {{
-        showMessage(error.message, false);
+        const statusData = await readDownloadStatusQuietly(payload);
+        const statusPatch = queuePatchFromDownloadStatus(
+          statusData,
+          friendlyError(error.message)
+        );
+        if (statusPatch) {{
+          updateQueueEntry(queueId, statusPatch);
+          showOutput(statusData);
+          showMessage(statusPatch.ok ? '下载已完成。' : '下载状态已更新。', statusPatch.ok);
+        }} else {{
+          const message = friendlyError(error.message);
+          updateQueueEntry(queueId, {{
+            status: '需处理',
+            ok: false,
+            tone: 'bad',
+            detail: message,
+            path: payload.output_root
+          }});
+          showMessage(message, false);
+        }}
       }} finally {{
         setBusy(false);
       }}
@@ -650,6 +1023,12 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
         const data = await api('/api/download/status', downloadPayload());
         showMessage('状态已读取。');
         showOutput(data);
+        addQueueEntry({{
+          status: data.download_status.label,
+          tone: data.download_status.state === 'complete' ? 'ok' : '',
+          detail: `已保存 ${{data.download_status.saved_count}}，部分 ${{data.download_status.partial_count}}`,
+          path: data.download_status.chapter_directory
+        }});
       }} catch (error) {{
         showMessage(error.message, false);
       }} finally {{
@@ -657,12 +1036,90 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       }}
     }});
 
-    document.getElementById('source-comic-id').addEventListener('input', () => {{
-      state.selectedComicId = document.getElementById('source-comic-id').value.trim();
-      updateComicSelectionStyles();
-      updateControls();
+    document.getElementById('account-button').addEventListener('click', () => {{
+      const loginPopover = document.getElementById('login-popover');
+      const accountPopover = document.getElementById('account-popover');
+      if (state.authenticated) {{
+        const shouldOpen = accountPopover.hidden;
+        hideAccountPopovers();
+        accountPopover.hidden = !shouldOpen;
+      }} else {{
+        const shouldOpen = loginPopover.hidden;
+        hideAccountPopovers();
+        loginPopover.hidden = !shouldOpen;
+        if (shouldOpen) {{
+          showLoginMessage('');
+          document.getElementById('login-username').focus();
+        }}
+      }}
+      document.getElementById('account-button').setAttribute(
+        'aria-expanded',
+        String(!loginPopover.hidden || !accountPopover.hidden)
+      );
     }});
 
+    document.getElementById('login-cancel').addEventListener('click', () => {{
+      hideAccountPopovers();
+      showLoginMessage('');
+    }});
+
+    document.getElementById('login-form').addEventListener('submit', async event => {{
+      event.preventDefault();
+      setAuthBusy(true, '正在登录。');
+      try {{
+        const username = document.getElementById('login-username').value;
+        const data = await api('/api/auth/login', {{
+          username,
+          password: document.getElementById('login-password').value
+        }});
+        state.authenticated = true;
+        state.userId = data.user_id || username.trim();
+        if (state.userId) {{
+          window.localStorage.setItem('panelscout_user_id', state.userId);
+        }}
+        document.getElementById('login-password').value = '';
+        hideAccountPopovers();
+        renderAccount();
+        showMessage('登录完成。');
+      }} catch (error) {{
+        const message = friendlyError(error.message);
+        showLoginMessage(message, false);
+        showMessage(message, false);
+      }} finally {{
+        setAuthBusy(false);
+      }}
+    }});
+
+    document.getElementById('logout-button').addEventListener('click', async () => {{
+      setAuthBusy(true);
+      try {{
+        await api('/api/auth/logout', {{}});
+        state.authenticated = false;
+        state.userId = '';
+        window.localStorage.removeItem('panelscout_user_id');
+        hideAccountPopovers();
+        renderAccount();
+        showMessage('已退出登录。');
+      }} catch (error) {{
+        showMessage(friendlyError(error.message), false);
+      }} finally {{
+        setAuthBusy(false);
+      }}
+    }});
+
+    document.addEventListener('click', event => {{
+      if (!document.getElementById('account-menu').contains(event.target)) {{
+        hideAccountPopovers();
+      }}
+    }});
+
+    document.querySelectorAll('.nav-tab').forEach(button => {{
+      button.addEventListener('click', () => switchView(button.dataset.view));
+    }});
+
+    renderAccount();
+    renderQueue();
+    refreshAuthStatus();
     refreshState();
   </script>
 </body>

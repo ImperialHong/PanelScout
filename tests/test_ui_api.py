@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from panelscout.auth import BrowserLoginResult
 from panelscout.config import build_config
 from panelscout.crawler import FetchedHtml
 from panelscout.downloader import FetchedImage
@@ -196,6 +197,66 @@ class PanelScoutUiApiTests(unittest.TestCase):
         self.assertEqual(plan["images_discovered"], 4)
         self.assertEqual(download_factory.configs, [config])
 
+    def test_auth_login_status_and_logout_use_local_session_storage_only(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            runner = FakeAuthLoginRunner()
+            api = PanelScoutUiApi(
+                config,
+                factories=UiApiFactories(auth_login_runner=runner),
+            )
+
+            before = api.auth_status({})
+            login = api.auth_login({"username": "alice", "password": "secret"})
+            status = api.auth_status({})
+            session_path = runner.calls[0][2]
+            with connect_database(config.database_path) as connection:
+                stored = ComicRepository(connection).get_auth_session("zaimanhua")
+            logout = api.auth_logout({})
+            after = api.auth_status({})
+
+        self.assertFalse(before["authenticated"])
+        self.assertTrue(login["authenticated"])
+        self.assertEqual(login["user_id"], "alice")
+        self.assertNotIn("secret", json.dumps(login, ensure_ascii=False))
+        self.assertEqual(status["status"], "stored")
+        self.assertTrue(status["authenticated"])
+        self.assertIsNotNone(stored)
+        self.assertFalse(session_path.exists())
+        self.assertTrue(logout["removed"])
+        self.assertTrue(logout["deleted_session_file"])
+        self.assertFalse(after["authenticated"])
+
+    def test_select_download_directory_uses_injected_local_picker(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            picker = FakeDirectoryPicker(root / "selected")
+            api = PanelScoutUiApi(
+                config,
+                factories=UiApiFactories(directory_picker=picker),
+            )
+            app = UiHttpApplication(config, api=api)
+
+            selected = api.select_download_directory({"initial": str(root / "downloads")})
+            canceled = PanelScoutUiApi(
+                config,
+                factories=UiApiFactories(directory_picker=FakeDirectoryPicker(None)),
+            ).select_download_directory({"initial": str(root / "downloads")})
+            routed = app.dispatch(
+                "POST",
+                "/api/download/select-directory",
+                json.dumps({"initial": str(root / "downloads")}).encode("utf-8"),
+            )
+
+        self.assertTrue(selected["selected"])
+        self.assertEqual(selected["path"], str(root / "selected"))
+        self.assertEqual(picker.initial_paths, [root / "downloads", root / "downloads"])
+        self.assertFalse(canceled["selected"])
+        self.assertEqual(routed.status_code, 200)
+        self.assertTrue(_json(routed)["selected"])
+
     def test_http_application_routes_without_opening_a_socket(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -211,6 +272,7 @@ class PanelScoutUiApiTests(unittest.TestCase):
             app = UiHttpApplication(config, api=api)
 
             html = app.dispatch("GET", "/")
+            auth_status = app.dispatch("GET", "/api/auth/status")
             search = app.dispatch(
                 "POST",
                 "/api/search",
@@ -221,6 +283,10 @@ class PanelScoutUiApiTests(unittest.TestCase):
         self.assertEqual(html.status_code, 200)
         self.assertIn("搜索并保存", html.body.decode("utf-8"))
         self.assertIn("/api/download/run", html.body.decode("utf-8"))
+        self.assertIn("/api/auth/login", html.body.decode("utf-8"))
+        self.assertIn("/api/auth/logout", html.body.decode("utf-8"))
+        self.assertEqual(auth_status.status_code, 200)
+        self.assertFalse(_json(auth_status)["authenticated"])
         self.assertEqual(search.status_code, 200)
         self.assertIn("伪恋同盟", search.body.decode("utf-8"))
         self.assertEqual(invalid.status_code, 400)
@@ -287,6 +353,36 @@ class FakeImageFetcher:
         )
 
 
+class FakeAuthLoginRunner:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, Path, str, str]] = []
+
+    def __call__(
+        self,
+        *,
+        source: str,
+        start_url: str,
+        session_path: Path,
+        username: str,
+        password: str,
+    ) -> BrowserLoginResult:
+        path = Path(session_path)
+        self.calls.append((source, start_url, path, username, password))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"cookies":[],"origins":[]}', encoding="utf-8")
+        return BrowserLoginResult(source=source, session_path=path, user_id=username)
+
+
+class FakeDirectoryPicker:
+    def __init__(self, selected_path: Path | None) -> None:
+        self.selected_path = selected_path
+        self.initial_paths: list[Path] = []
+
+    def __call__(self, initial_path: Path) -> Path | None:
+        self.initial_paths.append(initial_path)
+        return self.selected_path
+
+
 def _fixture(name: str) -> str:
     return (FIXTURE_ROOT / name).read_text(encoding="utf-8")
 
@@ -333,6 +429,10 @@ def _store_auth_session(config, session_path: Path) -> None:
                 status="stored",
             )
         )
+
+
+def _json(response):
+    return json.loads(response.body.decode("utf-8"))
 
 
 if __name__ == "__main__":

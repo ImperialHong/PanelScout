@@ -30,11 +30,28 @@ class UiRunnerTests(unittest.TestCase):
         body = html.body.decode("utf-8")
         self.assertIn("PanelScout 格探", body)
         self.assertIn("搜索并保存", body)
-        self.assertIn("同步详情", body)
+        self.assertIn('id="library-view" hidden', body)
+        self.assertIn('id="status-view" hidden', body)
+        self.assertIn("下载队列", body)
+        self.assertIn("icon-button", body)
+        self.assertIn('id="account-button"', body)
+        self.assertIn('id="login-form"', body)
+        self.assertIn("退出登录", body)
         self.assertIn("规划下载", body)
         self.assertIn("确认下载", body)
         self.assertIn("读取状态", body)
+        self.assertIn('id="browse-download-root"', body)
+        self.assertIn("/api/download/select-directory", body)
+        self.assertIn("ui_confirmed: true", body)
+        self.assertIn("/api/auth/status", body)
+        self.assertIn("/api/auth/login", body)
+        self.assertIn("/api/auth/logout", body)
         self.assertIn("api('/api/search'", body)
+        self.assertIn("api('/api/sync'", body)
+        self.assertNotIn('id="auth-mode"', body)
+        self.assertNotIn('id="permission-note"', body)
+        self.assertNotIn(PERMISSION_NOTE, body)
+        self.assertNotIn("漫画详情", body)
         self.assertNotIn("Download selected chapters", body)
         self.assertEqual(_json(state)["ok"], True)
 
@@ -65,7 +82,7 @@ class UiRunnerTests(unittest.TestCase):
                     "source_comic_id": "15599",
                     "chapter": "1",
                     "output_root": str(output_root),
-                    "permission_note": PERMISSION_NOTE,
+                    "ui_confirmed": True,
                 }
             )
             run = api.download_run(
@@ -73,7 +90,7 @@ class UiRunnerTests(unittest.TestCase):
                     "source_comic_id": "15599",
                     "chapter": "1",
                     "output_root": str(output_root),
-                    "permission_note": PERMISSION_NOTE,
+                    "ui_confirmed": True,
                 }
             )
             status = api.download_status(

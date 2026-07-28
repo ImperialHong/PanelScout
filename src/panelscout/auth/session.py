@@ -1,8 +1,8 @@
 """Local browser-session helpers for authenticated mode.
 
-The helpers in this module never accept plaintext usernames or passwords.
-Login must happen in a local browser controlled by the user, and only browser
-storage state is saved for later authenticated requests.
+Manual login is still user-driven in a local browser. Credential login accepts
+plaintext only for the active local request, sends it to the configured source
+login form, and persists only browser storage state for later requests.
 """
 
 from __future__ import annotations
@@ -97,6 +97,7 @@ class BrowserLoginResult:
     session_path: Path
     storage_backend: str = DEFAULT_AUTH_STORAGE_BACKEND
     status: str = AUTH_SESSION_STATUS_STORED
+    user_id: str | None = None
 
 
 def default_auth_session_path(config: PanelScoutConfig, source: str) -> Path:
@@ -140,6 +141,44 @@ def run_manual_browser_login(
     return BrowserLoginResult(source=source, session_path=path)
 
 
+def run_browser_credential_login(
+    *,
+    source: str,
+    start_url: str,
+    session_path: str | Path,
+    username: str,
+    password: str,
+    headless: bool = True,
+) -> BrowserLoginResult:
+    """Submit credentials in a local browser and save browser storage state."""
+
+    if source != SOURCE_NAME:
+        raise ValueError(f"unsupported auth source: {source}")
+    if not start_url.strip():
+        raise ValueError("auth login start URL cannot be blank")
+
+    user_id = str(username).strip()
+    if not user_id:
+        raise ValueError("auth login username cannot be blank")
+    password_text = str(password)
+    if not password_text:
+        raise ValueError("auth login password cannot be blank")
+
+    path = Path(session_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _capture_playwright_storage_state_with_credentials(
+        start_url=start_url.strip(),
+        session_path=path,
+        username=user_id,
+        password=password_text,
+        headless=headless,
+    )
+    if not path.exists():
+        raise AuthSessionError("browser login did not create a session storage file")
+
+    return BrowserLoginResult(source=source, session_path=path, user_id=user_id)
+
+
 def _capture_playwright_storage_state(
     *,
     start_url: str,
@@ -169,6 +208,167 @@ def _capture_playwright_storage_state(
             browser.close()
     except PlaywrightError as error:
         raise AuthSessionError(f"browser login failed: {error}") from error
+
+
+def _capture_playwright_storage_state_with_credentials(
+    *,
+    start_url: str,
+    session_path: Path,
+    username: str,
+    password: str,
+    headless: bool,
+) -> None:
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+        from playwright.sync_api import sync_playwright
+    except ImportError as error:
+        raise AuthSessionUnavailableError(
+            "Playwright is not installed. Install the optional auth dependencies "
+            "and run `playwright install chromium`, then retry auth login."
+        ) from error
+
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=headless)
+            context = browser.new_context()
+            page = context.new_page()
+            try:
+                page.goto(start_url, wait_until="domcontentloaded", timeout=20_000)
+                _dismiss_initial_overlays(page)
+                _open_login_form(page)
+                _fill_login_form(page, username=username, password=password)
+                _wait_for_login_completion(page)
+                try:
+                    page.wait_for_load_state("networkidle", timeout=10_000)
+                except PlaywrightTimeoutError:
+                    pass
+                context.storage_state(path=str(session_path))
+            finally:
+                context.close()
+                browser.close()
+    except PlaywrightError as error:
+        raise AuthSessionError(f"browser credential login failed: {error}") from error
+
+
+def _open_login_form(page) -> None:
+    if _password_input_count(page) > 0:
+        return
+
+    for selector in (
+        ".tplogin",
+        "text=登录",
+        "p:has-text('登录')",
+        "button:has-text('登录')",
+        "[class*='login']",
+        "[class*='Login']",
+    ):
+        try:
+            page.locator(selector).first.click(timeout=2_000)
+            page.wait_for_selector("input[type='password']", timeout=3_000)
+        except Exception:  # noqa: BLE001 - try the next source-login affordance.
+            continue
+        if _password_input_count(page) > 0:
+            return
+
+
+def _dismiss_initial_overlays(page) -> None:
+    page.wait_for_timeout(1_000)
+    for selector in (
+        ".teenbtn",
+        "text=我知道了",
+    ):
+        try:
+            page.wait_for_selector(selector, timeout=3_000)
+            locator = page.locator(selector).first
+            if locator.is_visible():
+                locator.click(timeout=2_000)
+                page.wait_for_timeout(500)
+        except Exception:  # noqa: BLE001 - overlay may be absent on repeat visits.
+            continue
+
+
+def _fill_login_form(page, *, username: str, password: str) -> None:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    try:
+        password_input = page.locator(
+            ".login_pop input[type='password'], input[type='password']"
+        ).first
+        password_input.wait_for(timeout=8_000)
+    except PlaywrightTimeoutError as error:
+        raise AuthSessionError("login password input was not found") from error
+
+    username_input = _first_visible_locator(
+        page,
+        (
+            ".login_pop input[placeholder*='用户名']",
+            ".login_pop input[type='text']",
+            "input[name='username']",
+            "input[name='user']",
+            "input[name='account']",
+            "input[name='phone']",
+            "input[type='tel']",
+            "input[type='email']",
+            "input[type='text']",
+        ),
+    )
+    if username_input is None:
+        raise AuthSessionError("login username input was not found")
+
+    username_input.fill(username)
+    password_input.fill(password)
+    submitted = False
+    for selector in (
+        ".login_pop button.lg_button",
+        ".login_pop button:has-text('登录')",
+        ".login_pop .lg_button",
+        "button[type='submit']",
+        "button:has-text('登录')",
+        "a:has-text('登录')",
+        "[class*='submit']",
+        "[class*='login']",
+    ):
+        try:
+            page.locator(selector).first.click(timeout=2_000)
+            submitted = True
+            break
+        except Exception:  # noqa: BLE001 - fall back to pressing Enter.
+            continue
+    if not submitted:
+        password_input.press("Enter")
+
+
+def _wait_for_login_completion(page) -> None:
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
+    try:
+        page.wait_for_function(
+            "() => document.body && document.body.innerText.includes('个人中心')",
+            timeout=12_000,
+        )
+    except PlaywrightTimeoutError as error:
+        raise AuthSessionError("login did not reach authenticated page state") from error
+
+
+def _password_input_count(page) -> int:
+    try:
+        return page.locator("input[type='password']").count()
+    except Exception:  # noqa: BLE001 - caller will continue probing.
+        return 0
+
+
+def _first_visible_locator(page, selectors: tuple[str, ...]):
+    for selector in selectors:
+        locator = page.locator(selector)
+        for index in range(locator.count()):
+            candidate = locator.nth(index)
+            try:
+                if candidate.is_visible(timeout=500):
+                    return candidate
+            except Exception:  # noqa: BLE001 - try the next candidate.
+                continue
+    return None
 
 
 class AuthenticatedBrowserHtmlFetcher:
