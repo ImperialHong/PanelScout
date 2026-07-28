@@ -254,6 +254,26 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       padding-right: 2px;
       margin-bottom: 10px;
     }}
+    .chapter-tools {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }}
+    .select-all {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 30px;
+      color: var(--muted);
+      font-weight: 600;
+    }}
+    .select-all input {{
+      min-height: 16px;
+      width: 16px;
+      padding: 0;
+    }}
     .chapter-list label {{
       display: flex;
       align-items: center;
@@ -405,6 +425,13 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
               <span class="badge" id="chapter-count">0 话</span>
             </div>
             <input id="source-comic-id" type="hidden" value="{_e(source_comic_id)}">
+            <div class="chapter-tools" id="chapter-tools" hidden>
+              <label class="select-all">
+                <input id="select-all-chapters" type="checkbox">
+                <span>全选</span>
+              </label>
+              <span class="badge" id="selected-chapter-count">0 已选</span>
+            </div>
             <div class="chapter-list" id="chapter-list"></div>
             <div class="download-grid">
               <div class="path-row">
@@ -418,9 +445,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
               </div>
             </div>
             <div class="action-row">
-              <button id="plan-button" type="button">规划下载</button>
               <button class="primary" id="run-button" type="button">确认下载</button>
-              <button id="status-button" type="button">读取状态</button>
             </div>
           </div>
           <div class="card" id="queue">
@@ -447,7 +472,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
   </main>
   <script>
     const state = {{
-      selectedChapter: "",
+      selectedChapters: [],
       selectedComicId: {_json_string(source_comic_id)},
       selectedComic: null,
       chapters: [],
@@ -555,8 +580,14 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       }}
     }}
 
-    function currentChapter() {{
-      return state.selectedChapter || document.querySelector('input[name="chapter"]:checked')?.value || '';
+    function selectedChapters() {{
+      const checked = Array.from(document.querySelectorAll('input[name="chapter"]:checked'))
+        .map(input => input.value)
+        .filter(Boolean);
+      if (checked.length) {{
+        state.selectedChapters = checked;
+      }}
+      return [...state.selectedChapters];
     }}
 
     function setBusy(isBusy, text = '') {{
@@ -576,12 +607,10 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
 
     function updateControls() {{
       const hasComic = Boolean(document.getElementById('source-comic-id').value.trim());
-      const hasChapter = Boolean(currentChapter());
+      const hasChapter = selectedChapters().length > 0;
       document.querySelector('#search-form button').disabled = state.busy;
       document.getElementById('browse-download-root').disabled = state.busy;
-      document.getElementById('plan-button').disabled = state.busy || !hasComic || !hasChapter;
       document.getElementById('run-button').disabled = state.busy || !hasComic || !hasChapter;
-      document.getElementById('status-button').disabled = state.busy || !hasComic || !hasChapter;
     }}
 
     async function api(path, body) {{
@@ -741,38 +770,56 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
 
     function renderChapters(chapters) {{
       const target = document.getElementById('chapter-list');
+      const tools = document.getElementById('chapter-tools');
       document.getElementById('chapter-count').textContent = `${{chapters.length}} 话`;
       target.replaceChildren();
+      tools.hidden = !chapters.length;
       if (!chapters.length) {{
-        state.selectedChapter = '';
+        state.selectedChapters = [];
         const empty = document.createElement('p');
         empty.className = 'empty';
         empty.textContent = '暂无可选章节。';
         target.appendChild(empty);
+        updateChapterSelectionState();
         updateControls();
         return;
       }}
-      if (!chapters.some(chapter => chapter.title === state.selectedChapter)) {{
-        state.selectedChapter = chapters[0].title;
+      const availableTitles = chapters.map(chapter => chapter.title);
+      state.selectedChapters = state.selectedChapters.filter(title => availableTitles.includes(title));
+      if (!state.selectedChapters.length) {{
+        state.selectedChapters = [chapters[0].title];
       }}
       chapters.forEach(chapter => {{
         const label = document.createElement('label');
         const input = document.createElement('input');
-        input.type = 'radio';
+        input.type = 'checkbox';
         input.name = 'chapter';
         input.value = chapter.title;
-        input.checked = chapter.title === state.selectedChapter;
+        input.checked = state.selectedChapters.includes(chapter.title);
         label.className = input.checked ? 'selected' : '';
         input.addEventListener('change', () => {{
-          state.selectedChapter = chapter.title;
-          document.querySelectorAll('.chapter-list label').forEach(node => node.classList.remove('selected'));
-          label.classList.add('selected');
-          updateControls();
+          state.selectedChapters = selectedChapters();
+          updateChapterSelectionState();
         }});
         label.appendChild(input);
         label.appendChild(document.createTextNode(chapter.title));
         target.appendChild(label);
       }});
+      updateChapterSelectionState();
+    }}
+
+    function updateChapterSelectionState() {{
+      const inputs = Array.from(document.querySelectorAll('input[name="chapter"]'));
+      const checked = inputs.filter(input => input.checked);
+      state.selectedChapters = checked.map(input => input.value);
+      document.querySelectorAll('.chapter-list label').forEach(label => {{
+        const input = label.querySelector('input[name="chapter"]');
+        label.classList.toggle('selected', Boolean(input?.checked));
+      }});
+      const selectAll = document.getElementById('select-all-chapters');
+      selectAll.checked = inputs.length > 0 && checked.length === inputs.length;
+      selectAll.indeterminate = checked.length > 0 && checked.length < inputs.length;
+      document.getElementById('selected-chapter-count').textContent = `${{checked.length}} 已选`;
       updateControls();
     }}
 
@@ -781,11 +828,11 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
         id: `${{Date.now()}}-${{state.queue.length}}`,
         time: new Date().toLocaleTimeString(),
         title: state.selectedComic?.title || entry.title || '未知漫画',
-        chapter: currentChapter() || entry.chapter || '未选择章节',
+        chapter: entry.chapter || selectedChapters().join('，') || '未选择章节',
         ...entry
       }};
       state.queue.unshift(queued);
-      state.queue = state.queue.slice(0, 12);
+      state.queue = state.queue.slice(0, 200);
       renderQueue();
       return queued.id;
     }}
@@ -865,7 +912,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
     }}
 
     async function openDownloadSetup(comic) {{
-      state.selectedChapter = '';
+      state.selectedChapters = [];
       state.chapters = [];
       renderDownloadSetup(comic, []);
       setBusy(true, `正在读取《${{comic.title}}》的章节。`);
@@ -897,10 +944,10 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       updateControls();
     }}
 
-    function downloadPayload() {{
+    function downloadPayload(chapter) {{
       return {{
         source_comic_id: document.getElementById('source-comic-id').value,
-        chapter: state.selectedChapter || document.querySelector('input[name="chapter"]:checked')?.value || '',
+        chapter,
         output_root: document.getElementById('download-root').value,
         ui_confirmed: true,
         ...authPayload()
@@ -953,87 +1000,84 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       }}
     }});
 
-    document.getElementById('plan-button').addEventListener('click', async () => {{
-      setBusy(true, '正在规划下载。');
-      try {{
-        const data = await api('/api/download/plan', downloadPayload());
-        showMessage('下载规划已完成。');
-        showOutput(data);
-        addQueueEntry({{
-          status: '已规划',
-          tone: 'ok',
-          detail: `${{data.images_discovered}} 张图片`,
-          path: data.chapter_directory
-        }});
-      }} catch (error) {{
-        showMessage(error.message, false);
-      }} finally {{
-        setBusy(false);
-      }}
+    document.getElementById('select-all-chapters').addEventListener('change', event => {{
+      const checked = event.target.checked;
+      document.querySelectorAll('input[name="chapter"]').forEach(input => {{
+        input.checked = checked;
+      }});
+      updateChapterSelectionState();
     }});
 
     document.getElementById('run-button').addEventListener('click', async () => {{
-      setBusy(true, '正在下载图片。');
-      const payload = downloadPayload();
-      const queueId = addQueueEntry({{
-        status: '下载中',
-        detail: '正在保存图片',
-        path: payload.output_root
-      }});
-      try {{
-        const data = await api('/api/download/run', payload);
-        showMessage('下载任务已完成。', data.ok);
-        showOutput(data);
-        updateQueueEntry(queueId, {{
-          status: data.ok ? '已完成' : '需处理',
-          ok: data.ok,
-          tone: data.ok ? 'ok' : 'bad',
-          detail: `保存 ${{data.saved_count}}，跳过 ${{data.skipped_count}}，失败 ${{data.failed_count}}`,
-          path: data.chapter_directory
+      const chapters = selectedChapters();
+      if (!chapters.length) {{
+        showMessage('请选择至少一话。', false);
+        return;
+      }}
+      setBusy(true, chapters.length > 1 ? `正在下载 ${{chapters.length}} 话。` : '正在下载图片。');
+      let successCount = 0;
+      let failedCount = 0;
+      let lastData = null;
+      for (const chapter of chapters) {{
+        const payload = downloadPayload(chapter);
+        const queueId = addQueueEntry({{
+          chapter,
+          status: '下载中',
+          detail: '正在保存图片',
+          path: payload.output_root
         }});
-      }} catch (error) {{
-        const statusData = await readDownloadStatusQuietly(payload);
-        const statusPatch = queuePatchFromDownloadStatus(
-          statusData,
-          friendlyError(error.message)
-        );
-        if (statusPatch) {{
-          updateQueueEntry(queueId, statusPatch);
-          showOutput(statusData);
-          showMessage(statusPatch.ok ? '下载已完成。' : '下载状态已更新。', statusPatch.ok);
-        }} else {{
-          const message = friendlyError(error.message);
+        try {{
+          const data = await api('/api/download/run', payload);
+          lastData = data;
+          if (data.ok) {{
+            successCount += 1;
+          }} else {{
+            failedCount += 1;
+          }}
           updateQueueEntry(queueId, {{
-            status: '需处理',
-            ok: false,
-            tone: 'bad',
-            detail: message,
-            path: payload.output_root
+            status: data.ok ? '已完成' : '需处理',
+            ok: data.ok,
+            tone: data.ok ? 'ok' : 'bad',
+            detail: `保存 ${{data.saved_count}}，跳过 ${{data.skipped_count}}，失败 ${{data.failed_count}}`,
+            path: data.chapter_directory
           }});
-          showMessage(message, false);
+        }} catch (error) {{
+          const statusData = await readDownloadStatusQuietly(payload);
+          const statusPatch = queuePatchFromDownloadStatus(
+            statusData,
+            friendlyError(error.message)
+          );
+          if (statusPatch) {{
+            updateQueueEntry(queueId, statusPatch);
+            lastData = statusData;
+            if (statusPatch.ok) {{
+              successCount += 1;
+            }} else {{
+              failedCount += 1;
+            }}
+          }} else {{
+            const message = friendlyError(error.message);
+            failedCount += 1;
+            updateQueueEntry(queueId, {{
+              status: '需处理',
+              ok: false,
+              tone: 'bad',
+              detail: message,
+              path: payload.output_root
+            }});
+          }}
         }}
-      }} finally {{
-        setBusy(false);
       }}
-    }});
-
-    document.getElementById('status-button').addEventListener('click', async () => {{
-      setBusy(true, '正在读取本地下载状态。');
-      try {{
-        const data = await api('/api/download/status', downloadPayload());
-        showMessage('状态已读取。');
-        showOutput(data);
-        addQueueEntry({{
-          status: data.download_status.label,
-          tone: data.download_status.state === 'complete' ? 'ok' : '',
-          detail: `已保存 ${{data.download_status.saved_count}}，部分 ${{data.download_status.partial_count}}`,
-          path: data.download_status.chapter_directory
-        }});
-      }} catch (error) {{
-        showMessage(error.message, false);
-      }} finally {{
-        setBusy(false);
+      if (lastData) {{
+        showOutput(lastData);
       }}
+      showMessage(
+        chapters.length > 1
+          ? `下载完成：成功 ${{successCount}} 话，需处理 ${{failedCount}} 话。`
+          : failedCount ? '下载需要处理。' : '下载任务已完成。',
+        failedCount === 0
+      );
+      setBusy(false);
     }});
 
     document.getElementById('account-button').addEventListener('click', () => {{

@@ -38,7 +38,7 @@ PYTHONPATH=src .venv/bin/panelscout download run 15599 --chapter "第01话" --au
 
 Authenticated chapter rendering switches supported reader pages to `滚动阅读` and records the rendered DOM/network image URLs before planning file paths.
 
-The interactive local UI can create and reuse the same saved session. Start it locally, click the right-side `登录` button, and enter the source account for the current local run. After login, the button shows the account ID and exposes `退出登录`; authenticated search, detail sync, download planning, and download execution then reuse the saved local browser storage state. Passwords are not stored. The download panel includes a folder button for choosing the target directory, and the confirmation note is handled by the local button action rather than shown as an editable field.
+The interactive local UI can create and reuse the same saved session. Start it locally, click the right-side `登录` button, and enter the source account for the current local run. After login, the button shows the account ID and exposes `退出登录`; authenticated search, detail sync, and download execution then reuse the saved local browser storage state. Passwords are not stored. The download panel supports multi-select/all-select chapter picking, includes a folder button for choosing the target directory, and handles the confirmation note through the local download action rather than showing it as an editable field.
 
 ```bash
 PYTHONPATH=src .venv/bin/panelscout ui serve

@@ -254,7 +254,7 @@ Current baseline:
 - Unit 33 wires `search --auth` and `download plan/run --auth` to the saved storage-state file for JavaScript-rendered search and chapter-page rendering.
 - Unit 34 wires the interactive local UI search, sync, download plan, and download run requests to the same authenticated fetcher path when a saved session is enabled.
 - Unit 35 switches supported authenticated reader pages to `滚动阅读` and snapshots rendered DOM/network image URLs before chapter image discovery.
-- Unit 36 simplifies the initial UI, replaces the visible auth switch with a `登录`/account menu, adds a local download-directory picker, keeps the queue updated during download execution, and lets the local UI capture/logout the saved session without storing plaintext passwords.
+- Unit 36 simplifies the initial UI, replaces the visible auth switch with a `登录`/account menu, removes low-value plan/status buttons from the interactive download panel, adds multi-select/all-select chapters and a local download-directory picker, keeps the queue updated during download execution, and lets the local UI capture/logout the saved session without storing plaintext passwords.
 - Authenticated download page rendering filters out reader chrome, logos, and layout images before planning files, then keeps image byte fetching on the existing conservative fetcher.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
 - Public search/download workflows remain available when auth is disabled.
@@ -479,7 +479,7 @@ MVP 4 current implementation note:
 - Unit 28 adds interactive UI calls for explicit download plan/run using the accepted downloader workflow and permission note.
 - Unit 29 adds interactive UI status reads for saved and partial files in the selected chapter directory.
 - Unit 34 routes interactive local UI search/sync/download page rendering through the saved authenticated browser session when enabled.
-- Unit 36 replaces the visible auth switch with a `登录`/account menu, adds a target-directory picker, removes the visible permission-note field, and keeps download history/status in the primary workspace.
+- Unit 36 replaces the visible auth switch with a `登录`/account menu, adds multi-select/all-select chapter controls and a target-directory picker, removes the visible permission-note field and low-value plan/status buttons, and keeps download history/status in the primary workspace.
 - Missing and initialized-empty databases render explicit empty states; the UI build path does not create the default user-home database just to render the shell.
 - The static `ui build` shell remains a local artifact only; it does not start a server, live network request, auth flow, browser automation, downloader engine, image fetcher, background daemon, or scheduler.
 - The interactive `ui serve` shell calls only the local PanelScout runner. It can trigger public or explicitly authenticated search/sync/download workflows only after user actions, and it does not call third-party websites directly from browser JavaScript.
@@ -652,7 +652,7 @@ Planned next Units:
 - Unit 33: Authenticated search-to-download live smoke. Status: accepted.
 - Unit 34: Authenticated local UI/API reuse. Status: accepted.
 - Unit 35: Authenticated scroll-reader image discovery. Status: accepted.
-- Unit 36: UI business-flow hardening: simplified search-first shell, login/account menu, directory picker, resilient download queue updates, clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks. Status: in progress.
+- Unit 36: UI business-flow hardening: simplified search-first shell, login/account menu, chapter multi-select/all-select, directory picker, resilient download queue updates, clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks. Status: in progress.
 
 ## 17. Open Questions
 
