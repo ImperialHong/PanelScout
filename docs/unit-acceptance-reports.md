@@ -1058,3 +1058,70 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - `git diff --check` passed.
 - No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, referer spoofing, source restriction bypass, public hosting, background daemon, or queue runtime was introduced.
+
+### Unit 36: UI Business-Flow Hardening
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-28
+
+Implemented files:
+
+- `README.md`
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `src/panelscout/ui/api.py`
+- `src/panelscout/ui/app_shell.py`
+- `tests/test_ui_api.py`
+- `tests/test_ui_runner.py`
+
+Validation summary:
+
+- Simplified the initial local UI so the search view shows search input/results on the left and download history/status on the right.
+- Moved local library and runtime status into top-level navigation views instead of showing them by default.
+- Replaced the visible auth-session switch with a `登录` button that opens a username/password form, then becomes an account button showing the user id and a logout action.
+- Added a compact download icon to each search result card.
+- Removed the dedicated manga-detail panel from the initial search flow.
+- Removed low-value planning/status buttons from the chapter download panel.
+- Added multi-select and all-select chapter controls.
+- Added a download-directory picker so users do not need to type the target path.
+- Removed the visible permission-note field from the UI while keeping the local UI confirmation marker in API requests.
+- Fixed download queue/history updates after confirmed downloads.
+- Focused UI/API/unit validation passed before commit and push.
+- No real credentials, cookies, storage-state files, CAPTCHA solving, paid/VIP bypass, source restriction bypass, public hosting, or background daemon was introduced.
+
+### Unit 37: Windows Portable Release Baseline
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-28
+
+Implemented files:
+
+- `.github/workflows/windows-release.yml`
+- `README.md`
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `packaging/windows/README-Windows.md`
+- `packaging/windows/panelscout_windows.spec`
+- `pyproject.toml`
+- `src/panelscout/windows_launcher.py`
+- `tests/test_windows_release.py`
+
+Validation summary:
+
+- Added a Windows launcher that starts the local UI on `127.0.0.1`, opens the default browser, accepts an optional config path and port, and keeps the console visible while the app runs.
+- Added a PyInstaller spec that builds `PanelScout.exe` and collects Playwright runtime data for bundled authenticated login/rendering support.
+- Added a GitHub Actions workflow that builds on `windows-latest`, installs packaging dependencies, installs bundled Chromium with `PLAYWRIGHT_BROWSERS_PATH=0`, runs the non-live unit suite, zips `dist/PanelScout`, uploads the artifact, and publishes the zip on `v*` tags.
+- Added Windows user instructions for extracting the zip, double-clicking `PanelScout.exe`, local data locations, SmartScreen warnings, browser fallback URL, and alternate port usage.
+- Added focused tests for the launcher, PyInstaller spec, workflow, and Windows README.
+- Focused validation passed with `PYTHONPATH=src .venv/bin/python -m unittest tests.test_windows_release tests.test_ui_runner tests.test_cli -v`.
+- Full non-live validation passed with `PANELSCOUT_LIVE_AUTH=0 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`: `137` tests passed and `1` live smoke test was skipped.
+- `compileall` passed for `src` and `tests`.
+- `git diff --check` passed.
+- Sensitive-value scan found no checked-in match for the development test account username or password.
+- No credentials, cookies, storage-state files, local databases, downloaded comics, public hosting, or account-specific release artifacts were added.

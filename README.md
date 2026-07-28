@@ -8,6 +8,12 @@ Chinese name: 格探
 
 This repository has a tested local MVP baseline for public and authenticated search, detail sync, explicit download planning/saving, local UI actions, and authenticated-session capture/reuse. Current architecture, scope, safety boundaries, and unit acceptance reports are recorded in [docs/design-document.md](docs/design-document.md) and [docs/unit-acceptance-reports.md](docs/unit-acceptance-reports.md).
 
+## Windows Portable Release
+
+PanelScout now has a Windows release baseline for non-developer users. The release workflow builds a portable `PanelScout-*-windows-x64.zip` on GitHub Actions, bundles Playwright Chromium for authenticated login/rendering, and publishes the zip as a workflow artifact or tagged GitHub Release asset.
+
+Windows users can extract the zip and double-click `PanelScout.exe`; the app starts a local-only UI at `http://127.0.0.1:8765/` and opens the default browser. Usage notes are in [packaging/windows/README-Windows.md](packaging/windows/README-Windows.md).
+
 ## Guiding Principle
 
 PanelScout defaults to metadata-only collection. Any content download feature must be explicitly enabled only for resources the user has permission to archive.

@@ -1,8 +1,8 @@
 # PanelScout Design Document
 
-Version: 0.35
+Version: 0.37
 
-Date: 2026-07-27
+Date: 2026-07-28
 
 Chinese name: 格探
 
@@ -22,6 +22,7 @@ The project must not bypass login, paywalls, CAPTCHA, anti-hotlinking, encryptio
 - Support a local authenticated session mode for content that the user's own account can normally view.
 - Save user-authorized free or account-visible chapter images into a predictable local folder layout.
 - Keep crawling polite, rate-limited, cache-aware, and observable.
+- Provide a Windows portable release package that starts the local-only UI for non-developer users.
 
 ## 2.1 Current Delivery Priority
 
@@ -51,6 +52,7 @@ Priority rules:
 - No mass image mirroring or whole-site archiving by default.
 - No redistribution or sharing workflow for copyrighted content.
 - No public hosted scraping service in the first version.
+- No bundled plaintext credentials or account-specific release artifacts.
 
 ## 4. Proposed Software Name
 
@@ -281,6 +283,23 @@ Suggested local storage:
 
 For macOS, the preferred long-term storage is Keychain-backed session encryption. The plain JSON storage path is acceptable only for local development and must carry a warning.
 
+### 6.11 Release Packaging
+
+Release packaging is local-app distribution only. The first supported release target is a Windows x64 portable zip.
+
+Current baseline:
+
+- Unit 37 adds `panelscout.windows_launcher`, a double-click-friendly launcher that starts `serve_local_ui` on `127.0.0.1`, opens the default browser, and keeps the console window visible while the app runs.
+- Unit 37 adds a PyInstaller spec under `packaging/windows/` and a GitHub Actions workflow for `windows-latest`.
+- The workflow installs the optional packaging dependencies, sets `PLAYWRIGHT_BROWSERS_PATH=0`, installs Chromium with Playwright, runs the non-live unit suite, builds `PanelScout.exe`, copies Windows instructions into `dist/PanelScout`, zips the folder, uploads the artifact, and publishes it to GitHub Releases when the build is triggered by a `v*` tag.
+
+Rules:
+
+- Release artifacts must not include `.env.local`, credentials, cookies, storage-state files, local databases, or downloaded comics.
+- The packaged app must remain local-only and bind to `127.0.0.1`.
+- The first release can be unsigned; Windows SmartScreen warnings must be documented.
+- Passwords are accepted only through the active local login flow and must not be persisted.
+
 ## 7. Data Model
 
 ### comics
@@ -505,6 +524,8 @@ MVP 5 has started after the anonymous/public minimum search-to-download line rea
 - HTTP client: `httpx`
 - HTML parser: `selectolax` or `beautifulsoup4`
 - Browser automation: `playwright` for authenticated login and optional rendering fallback
+- Windows packaging: PyInstaller with bundled Playwright Chromium
+- Release automation: GitHub Actions
 - CLI framework: `typer`
 - Database: SQLite
 - ORM or query layer: SQLModel, SQLAlchemy Core, or plain SQL
@@ -516,14 +537,22 @@ MVP 5 has started after the anonymous/public minimum search-to-download line rea
 ```text
 panel-scout/
   README.md
+  .github/
+    workflows/
+      windows-release.yml
   docs/
     design-document.md
+  packaging/
+    windows/
+      README-Windows.md
+      panelscout_windows.spec
   pyproject.toml
   src/
     panelscout/
       __init__.py
       cli.py
       config.py
+      windows_launcher.py
       crawler/
         engine.py
         fetcher.py
@@ -620,9 +649,9 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 35.
+Current accepted range: Unit 1 through Unit 37.
 
-Latest accepted Unit: Unit 35, Authenticated Scroll Reader Image Discovery.
+Latest accepted Unit: Unit 37, Windows Portable Release Baseline.
 
 High-level milestone status:
 
@@ -632,10 +661,11 @@ High-level milestone status:
 - Minimum search-to-download line: Search, save, detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level for public mode and at live-smoke level for authenticated mode, including lazy-loaded scroll-reader chapters.
 - MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, UI command bridge, local-only UI runner/API, UI search/save, UI detail/chapter sync, UI download plan/run, and UI download status read are accepted at fixture-test level.
 - MVP 5: Authenticated Session Mode has accepted login capture/status/logout, authenticated sync, authenticated search, authenticated chapter-page rendering, authenticated local UI reuse, and scroll-reader lazy image discovery baselines. Server-side validation and recovery UX remain pending.
+- Distribution: Windows portable zip packaging is accepted at repository/workflow level; a real GitHub Actions run on `windows-latest` is the next release gate.
 
 ## 16. Next Unit Plan
 
-Current priority: validate and harden the authenticated local UI business flow with focused usability, visible progress, clear expired-session errors, and manual smoke checks before expanding secondary pages.
+Current priority: run the Windows release workflow on GitHub, download the generated portable zip on a Windows machine, and smoke-test login, search, chapter selection, folder picking, and download execution.
 
 Planned next Units:
 
@@ -652,7 +682,8 @@ Planned next Units:
 - Unit 33: Authenticated search-to-download live smoke. Status: accepted.
 - Unit 34: Authenticated local UI/API reuse. Status: accepted.
 - Unit 35: Authenticated scroll-reader image discovery. Status: accepted.
-- Unit 36: UI business-flow hardening: simplified search-first shell, login/account menu, chapter multi-select/all-select, directory picker, resilient download queue updates, clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks. Status: in progress.
+- Unit 36: UI business-flow hardening: simplified search-first shell, login/account menu, chapter multi-select/all-select, directory picker, resilient download queue updates, clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks. Status: accepted.
+- Unit 37: Windows portable release baseline: launcher, PyInstaller spec, Windows instructions, and GitHub Actions artifact/release workflow. Status: accepted at repository/workflow level; Windows runner artifact smoke remains the release gate.
 
 ## 17. Open Questions
 

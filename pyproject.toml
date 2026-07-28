@@ -12,6 +12,7 @@ dependencies = []
 
 [project.optional-dependencies]
 auth = ["playwright>=1.45"]
+packaging = ["playwright>=1.45", "pyinstaller>=6.0"]
 
 [project.scripts]
 panelscout = "panelscout.cli:main"
