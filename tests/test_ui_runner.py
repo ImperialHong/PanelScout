@@ -7,7 +7,7 @@ import unittest
 
 from panelscout.config import build_config
 from panelscout.downloader import FetchedImage
-from panelscout.storage import ComicRepository, connect_database
+from panelscout.storage import Comic, ComicRepository, connect_database
 from panelscout.ui import PanelScoutUiApi, UiApiFactories, UiHttpApplication
 from panelscout.ui.server import UiServerError, serve_local_ui
 
@@ -30,8 +30,6 @@ class UiRunnerTests(unittest.TestCase):
         body = html.body.decode("utf-8")
         self.assertIn("PanelScout 格探", body)
         self.assertIn("搜索并保存", body)
-        self.assertIn('id="library-view" hidden', body)
-        self.assertIn('id="status-view" hidden', body)
         self.assertIn("下载队列", body)
         self.assertIn("icon-button", body)
         self.assertIn('id="account-button"', body)
@@ -49,6 +47,12 @@ class UiRunnerTests(unittest.TestCase):
         self.assertIn("/api/download/enqueue", body)
         self.assertIn("/api/download/queue", body)
         self.assertIn("queuePollingTimer", body)
+        self.assertIn("chapter_count", body)
+        self.assertIn("completed_count", body)
+        self.assertIn("显示为 1 条任务", body)
+        self.assertIn("chapter-loading", body)
+        self.assertIn("正在读取章节…", body)
+        self.assertIn("renderDownloadSetup(comic, [], { loading: true })", body)
         self.assertIn("ui_confirmed: true", body)
         self.assertIn("/api/auth/status", body)
         self.assertIn("/api/auth/login", body)
@@ -64,6 +68,11 @@ class UiRunnerTests(unittest.TestCase):
         )
         self.assertIn("api('/api/sync'", body)
         self.assertNotIn('id="auth-mode"', body)
+        self.assertNotIn('id="library-view"', body)
+        self.assertNotIn('id="status-view"', body)
+        self.assertNotIn("本地库", body)
+        self.assertNotIn("运行状态", body)
+        self.assertNotIn("nav-tab", body)
         self.assertNotIn('id="plan-button"', body)
         self.assertNotIn('id="status-button"', body)
         self.assertNotIn("规划下载", body)
@@ -73,6 +82,29 @@ class UiRunnerTests(unittest.TestCase):
         self.assertNotIn("漫画详情", body)
         self.assertNotIn("Download selected chapters", body)
         self.assertEqual(_json(state)["ok"], True)
+
+    def test_interactive_shell_does_not_prefill_search_from_local_database(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            with connect_database(config.database_path) as connection:
+                ComicRepository(connection).upsert_comic(
+                    Comic(
+                        source="zaimanhua",
+                        source_comic_id="64193",
+                        title="恋上虚伪之物的魔法使",
+                        latest_chapter_title="第01话",
+                    )
+                )
+            app = UiHttpApplication(config)
+
+            html = app.dispatch("GET", "/")
+
+        body = html.body.decode("utf-8")
+        self.assertIn('id="search-query" type="search" value=""', body)
+        self.assertIn('id="source-comic-id" type="hidden" value=""', body)
+        self.assertIn('selectedComicId: ""', body)
+        self.assertNotIn("恋上虚伪之物的魔法使", body)
 
     def test_api_search_sync_download_plan_run_and_status(self):
         search_html = (FIXTURE_ROOT / "search_weisample.html").read_text(encoding="utf-8")

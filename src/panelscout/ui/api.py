@@ -390,7 +390,11 @@ class PanelScoutUiApi:
 
     def download_enqueue(self, payload: dict[str, Any]) -> dict[str, Any]:
         chapters = _chapter_references(payload)
-        queue_jobs = []
+        queue_tasks: list[dict[str, Any]] = []
+        batch_source = ""
+        batch_source_comic_id = ""
+        batch_comic_title = ""
+        batch_output_root = ""
         for chapter_reference in chapters:
             job_payload = {
                 key: value
@@ -405,23 +409,31 @@ class PanelScoutUiApi:
             job_payload["source_comic_id"] = comic.source_comic_id
             job_payload["chapter"] = chapter.title
             job_payload["output_root"] = output_root
-            queue_jobs.append(
-                build_queue_job(
-                    payload=job_payload,
-                    source=source,
-                    source_comic_id=comic.source_comic_id,
-                    comic_title=comic.title,
-                    chapter_title=chapter.title,
-                    output_root=output_root,
-                )
+            batch_source = source
+            batch_source_comic_id = comic.source_comic_id
+            batch_comic_title = comic.title
+            batch_output_root = output_root
+            queue_tasks.append(
+                {
+                    "payload": job_payload,
+                    "chapter_title": chapter.title,
+                }
             )
 
-        queued_jobs = [self.download_queue.add(job) for job in queue_jobs]
+        queued_job = self.download_queue.add(
+            build_queue_job(
+                tasks=queue_tasks,
+                source=batch_source,
+                source_comic_id=batch_source_comic_id,
+                comic_title=batch_comic_title,
+                output_root=batch_output_root,
+            )
+        )
         snapshot = self.download_queue.snapshot()
         return {
             "ok": True,
-            "queued_count": len(queued_jobs),
-            "jobs": queued_jobs,
+            "queued_count": len(queue_tasks),
+            "jobs": [queued_job],
             "queue": snapshot,
         }
 

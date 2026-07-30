@@ -159,9 +159,20 @@ class PanelScoutUiApiTests(unittest.TestCase):
 
         self.assertTrue(enqueued["ok"])
         self.assertEqual(enqueued["queued_count"], 2)
-        self.assertEqual(queue["summary"]["complete"], 2)
+        self.assertEqual(len(enqueued["jobs"]), 1)
+        self.assertEqual(enqueued["jobs"][0]["chapter_count"], 2)
+        self.assertEqual(queue["summary"]["total"], 1)
+        self.assertEqual(queue["summary"]["complete"], 1)
         self.assertEqual(queue["summary"]["failed"], 0)
-        self.assertEqual([job["status"] for job in queue["jobs"]], ["complete", "complete"])
+        self.assertEqual([job["status"] for job in queue["jobs"]], ["complete"])
+        self.assertEqual(queue["jobs"][0]["chapter_count"], 2)
+        self.assertEqual(queue["jobs"][0]["completed_count"], 2)
+        self.assertEqual(queue["jobs"][0]["failed_chapter_count"], 0)
+        self.assertEqual(queue["jobs"][0]["saved_count"], 8)
+        self.assertEqual(
+            [chapter["chapter_title"] for chapter in queue["jobs"][0]["chapters"]],
+            ["第001话 背叛之后", "第002话 同盟成立"],
+        )
         self.assertEqual(len(image_factory.fetcher.urls), 8)
 
     def test_download_enqueue_accepts_new_tasks_while_worker_is_running(self):
@@ -217,8 +228,17 @@ class PanelScoutUiApiTests(unittest.TestCase):
         self.assertEqual(running_queue["summary"]["total"], 2)
         self.assertEqual(running_queue["summary"]["running"], 1)
         self.assertEqual(running_queue["summary"]["pending"], 1)
+        self.assertEqual([job["status"] for job in running_queue["jobs"]], ["pending", "running"])
+        self.assertEqual(
+            [job["chapter_title"] for job in running_queue["jobs"]],
+            ["第002话 同盟成立", "第001话 背叛之后"],
+        )
         self.assertEqual(complete_queue["summary"]["complete"], 2)
         self.assertEqual(complete_queue["summary"]["failed"], 0)
+        self.assertEqual(
+            [job["chapter_title"] for job in complete_queue["jobs"]],
+            ["第002话 同盟成立", "第001话 背叛之后"],
+        )
 
     def test_download_enqueue_validates_all_chapters_before_starting_worker(self):
         with TemporaryDirectory() as directory:

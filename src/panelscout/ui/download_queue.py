@@ -21,15 +21,11 @@ def _utc_now_string() -> str:
 
 
 @dataclass
-class DownloadQueueJob:
-    """One queued chapter download task."""
+class DownloadQueueTask:
+    """One chapter inside a queued download batch."""
 
     payload: dict[str, Any]
-    source: str
-    source_comic_id: str
-    comic_title: str
     chapter_title: str
-    output_root: str
     id: str = field(default_factory=lambda: uuid4().hex)
     status: str = "pending"
     created_at: str = field(default_factory=_utc_now_string)
@@ -46,12 +42,7 @@ class DownloadQueueJob:
             "id": self.id,
             "status": self.status,
             "status_label": _status_label(self.status),
-            "ok": _job_ok(self),
-            "source": self.source,
-            "source_comic_id": self.source_comic_id,
-            "comic_title": self.comic_title,
             "chapter_title": self.chapter_title,
-            "output_root": self.output_root,
             "chapter_directory": result.get("chapter_directory")
             or download_status.get("chapter_directory"),
             "saved_count": result.get("saved_count"),
@@ -62,6 +53,55 @@ class DownloadQueueJob:
             "updated_at": self.updated_at,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "result": result if self.status in {"complete", "failed"} else None,
+        }
+
+
+@dataclass
+class DownloadQueueJob:
+    """One queued batch created by a single user enqueue action."""
+
+    tasks: list[DownloadQueueTask]
+    source: str
+    source_comic_id: str
+    comic_title: str
+    output_root: str
+    id: str = field(default_factory=lambda: uuid4().hex)
+    status: str = "pending"
+    created_at: str = field(default_factory=_utc_now_string)
+    updated_at: str = field(default_factory=_utc_now_string)
+    started_at: str | None = None
+    finished_at: str | None = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        result = self.result or _batch_result(self)
+        task_dicts = [task.to_dict() for task in self.tasks]
+        return {
+            "id": self.id,
+            "status": self.status,
+            "status_label": _status_label(self.status),
+            "ok": _job_ok(self),
+            "source": self.source,
+            "source_comic_id": self.source_comic_id,
+            "comic_title": self.comic_title,
+            "chapter_title": _chapter_title_summary(self.tasks),
+            "chapter_count": len(self.tasks),
+            "completed_count": _task_count(self.tasks, "complete"),
+            "failed_chapter_count": _task_count(self.tasks, "failed"),
+            "running_chapter_title": _running_chapter_title(self.tasks),
+            "output_root": self.output_root,
+            "chapter_directory": _single_chapter_directory(task_dicts),
+            "saved_count": result.get("saved_count"),
+            "skipped_count": result.get("skipped_count"),
+            "failed_count": result.get("failed_count"),
+            "error": self.error,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "chapters": task_dicts,
             "result": result if self.status in {"complete", "failed"} else None,
         }
 
@@ -86,7 +126,7 @@ class DownloadQueue:
 
     def snapshot(self) -> dict[str, Any]:
         with self._condition:
-            jobs = [job.to_dict() for job in self._jobs]
+            jobs = [job.to_dict() for job in reversed(self._jobs)]
         return {
             "jobs": jobs,
             "summary": _queue_summary(jobs),
@@ -121,22 +161,41 @@ class DownloadQueue:
                 job.updated_at = job.started_at
                 self._condition.notify_all()
 
-            try:
-                result = self._runner(dict(job.payload))
-            except Exception as error:  # noqa: BLE001 - queue must record task failures.
+            for task in job.tasks:
                 with self._condition:
-                    job.status = "failed"
-                    job.error = str(error)
-                    job.finished_at = _utc_now_string()
-                    job.updated_at = job.finished_at
+                    task.status = "running"
+                    task.started_at = _utc_now_string()
+                    task.updated_at = task.started_at
+                    job.updated_at = task.started_at
                     self._condition.notify_all()
-                continue
+
+                try:
+                    result = self._runner(dict(task.payload))
+                except Exception as error:  # noqa: BLE001 - queue must record task failures.
+                    with self._condition:
+                        task.status = "failed"
+                        task.error = str(error)
+                        task.finished_at = _utc_now_string()
+                        task.updated_at = task.finished_at
+                        job.updated_at = task.finished_at
+                        self._condition.notify_all()
+                    continue
+
+                with self._condition:
+                    task.result = result
+                    task.status = "complete" if result.get("ok") else "failed"
+                    if task.status == "failed":
+                        task.error = _result_error(result)
+                    task.finished_at = _utc_now_string()
+                    task.updated_at = task.finished_at
+                    job.updated_at = task.finished_at
+                    self._condition.notify_all()
 
             with self._condition:
-                job.result = result
-                job.status = "complete" if result.get("ok") else "failed"
+                job.result = _batch_result(job)
+                job.status = "failed" if _task_count(job.tasks, "failed") else "complete"
                 if job.status == "failed":
-                    job.error = _result_error(result)
+                    job.error = _batch_error(job)
                 job.finished_at = _utc_now_string()
                 job.updated_at = job.finished_at
                 self._condition.notify_all()
@@ -162,19 +221,23 @@ class DownloadQueue:
 
 def build_queue_job(
     *,
-    payload: dict[str, Any],
+    tasks: list[dict[str, Any]],
     source: str,
     source_comic_id: str,
     comic_title: str,
-    chapter_title: str,
     output_root: str,
 ) -> DownloadQueueJob:
     return DownloadQueueJob(
-        payload=_sanitized_payload(payload),
+        tasks=[
+            DownloadQueueTask(
+                payload=_sanitized_payload(task["payload"]),
+                chapter_title=str(task["chapter_title"]),
+            )
+            for task in tasks
+        ],
         source=source,
         source_comic_id=source_comic_id,
         comic_title=comic_title,
-        chapter_title=chapter_title,
         output_root=output_root,
     )
 
@@ -200,6 +263,61 @@ def _job_ok(job: DownloadQueueJob) -> bool | None:
     return None
 
 
+def _task_count(tasks: list[DownloadQueueTask], status: str) -> int:
+    return sum(1 for task in tasks if task.status == status)
+
+
+def _running_chapter_title(tasks: list[DownloadQueueTask]) -> str | None:
+    for task in tasks:
+        if task.status == "running":
+            return task.chapter_title
+    return None
+
+
+def _chapter_title_summary(tasks: list[DownloadQueueTask]) -> str:
+    if not tasks:
+        return "未选择章节"
+    if len(tasks) == 1:
+        return tasks[0].chapter_title
+    return f"{tasks[0].chapter_title} 等 {len(tasks)} 话"
+
+
+def _single_chapter_directory(task_dicts: list[dict[str, Any]]) -> str | None:
+    if len(task_dicts) != 1:
+        return None
+    directory = task_dicts[0].get("chapter_directory")
+    return str(directory) if directory else None
+
+
+def _batch_result(job: DownloadQueueJob) -> dict[str, Any]:
+    return {
+        "ok": _task_count(job.tasks, "failed") == 0,
+        "chapter_count": len(job.tasks),
+        "completed_count": _task_count(job.tasks, "complete"),
+        "failed_chapter_count": _task_count(job.tasks, "failed"),
+        "saved_count": _sum_task_result(job.tasks, "saved_count"),
+        "skipped_count": _sum_task_result(job.tasks, "skipped_count"),
+        "failed_count": _sum_task_result(job.tasks, "failed_count"),
+    }
+
+
+def _sum_task_result(tasks: list[DownloadQueueTask], key: str) -> int:
+    total = 0
+    for task in tasks:
+        result = task.result or {}
+        value = result.get(key)
+        if isinstance(value, int):
+            total += value
+    return total
+
+
+def _batch_error(job: DownloadQueueJob) -> str | None:
+    failed_chapters = _task_count(job.tasks, "failed")
+    if not failed_chapters:
+        return None
+    return f"{failed_chapters} chapter(s) failed"
+
+
 def _queue_summary(jobs: list[dict[str, Any]]) -> dict[str, int | bool]:
     pending = sum(1 for job in jobs if job["status"] == "pending")
     running = sum(1 for job in jobs if job["status"] == "running")
@@ -220,4 +338,3 @@ def _result_error(result: dict[str, Any]) -> str | None:
     if failed_count:
         return f"{failed_count} file(s) failed"
     return result.get("error")
-
