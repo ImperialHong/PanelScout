@@ -510,6 +510,9 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
     }}
 
     function friendlyError(message) {{
+      if (message.includes('请求超时') || message.includes('aborted')) {{
+        return '请求超时；网站响应较慢，请稍后重试。';
+      }}
       if (message.includes('auth session not configured')) {{
         return '登录会话未配置；请点击右上角登录按钮完成登录，或继续使用公开搜索。';
       }}
@@ -614,26 +617,52 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       document.getElementById('run-button').disabled = state.busy || !hasComic || !hasChapter;
     }}
 
+    function requestTimeoutFor(path) {{
+      if (path === '/api/search') {{
+        return 90000;
+      }}
+      if (path === '/api/sync' || path === '/api/download/enqueue') {{
+        return 120000;
+      }}
+      if (path === '/api/download/select-directory') {{
+        return 300000;
+      }}
+      return 30000;
+    }}
+
+    async function requestJson(path, options = {{}}) {{
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), requestTimeoutFor(path));
+      try {{
+        const response = await fetch(path, {{
+          ...options,
+          signal: controller.signal
+        }});
+        const data = await response.json();
+        if (!response.ok || data.ok === false) {{
+          throw new Error(data.error || '请求失败');
+        }}
+        return data;
+      }} catch (error) {{
+        if (error.name === 'AbortError') {{
+          throw new Error('请求超时');
+        }}
+        throw error;
+      }} finally {{
+        window.clearTimeout(timer);
+      }}
+    }}
+
     async function api(path, body) {{
-      const response = await fetch(path, {{
+      return requestJson(path, {{
         method: 'POST',
         headers: {{ 'Content-Type': 'application/json' }},
         body: JSON.stringify(body || {{}})
       }});
-      const data = await response.json();
-      if (!response.ok || data.ok === false) {{
-        throw new Error(data.error || '请求失败');
-      }}
-      return data;
     }}
 
     async function apiGet(path) {{
-      const response = await fetch(path);
-      const data = await response.json();
-      if (!response.ok || data.ok === false) {{
-        throw new Error(data.error || '请求失败');
-      }}
-      return data;
+      return requestJson(path);
     }}
 
     function authPayload() {{
@@ -686,7 +715,10 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
         const data = await apiGet('/api/auth/status');
         const savedUserId = window.localStorage.getItem('panelscout_user_id') || '';
         state.authenticated = Boolean(data.authenticated);
-        state.userId = state.authenticated ? savedUserId : '';
+        state.userId = state.authenticated ? (data.user_id || savedUserId) : '';
+        if (state.userId) {{
+          window.localStorage.setItem('panelscout_user_id', state.userId);
+        }}
         if (!state.authenticated) {{
           window.localStorage.removeItem('panelscout_user_id');
         }}
@@ -978,8 +1010,7 @@ def build_interactive_ui_shell(state: LocalUiState) -> str:
       try {{
         const data = await api('/api/search', {{
           query: document.getElementById('search-query').value,
-          save: true,
-          ...authPayload()
+          save: true
         }});
         renderComics(data.comics || [], 'search-results');
         showSearchMessage(`搜索完成，找到 ${{(data.comics || []).length}} 项。`);

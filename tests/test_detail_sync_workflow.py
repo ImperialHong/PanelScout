@@ -1,6 +1,7 @@
 from pathlib import Path
 import unittest
 
+from panelscout.adapters.zaimanhua import build_detail_api_url
 from panelscout.crawler.engine import check_watchlist_public_updates, sync_public_detail
 from panelscout.crawler.fetcher import FetchedHtml
 from panelscout.storage import Comic, ComicRepository, connect_database
@@ -34,6 +35,49 @@ class PublicDetailSyncWorkflowTests(unittest.TestCase):
         assert stored is not None
         self.assertEqual(stored.summary, result.comic.summary)
         self.assertIsNotNone(stored.last_checked_at)
+
+    def test_sync_uses_detail_api_fallback_when_visible_chapters_are_missing(self):
+        detail_url = "https://manhua.zaimanhua.com/details/82936"
+        api_url = build_detail_api_url("82936")
+        html = """
+        <html>
+          <head>
+            <title>HIGH不起来的约会漫画 第31话连载 长门知大 在线漫画 - 再漫画</title>
+            <meta property="og:url" content="https://www.zaimanhua.com/details/82936">
+          </head>
+          <body>
+            <a href="/view/undefined/undefined/0">开始阅读</a>
+          </body>
+        </html>
+        """
+        api_payload = (FIXTURE_ROOT / "detail_api_82936.json").read_text(encoding="utf-8")
+        fetcher = FakeHtmlJsonFetcher({detail_url: html}, {api_url: api_payload})
+
+        with connect_database(":memory:") as connection:
+            repository = ComicRepository(connection)
+            result = sync_public_detail("82936", fetcher, repository)
+            stored = repository.get_comic_by_source("zaimanhua", "82936")
+            assert stored is not None
+            chapters = repository.list_chapters(stored.id or -1)
+
+        self.assertEqual(fetcher.urls, [detail_url])
+        self.assertEqual(fetcher.json_urls, [api_url])
+        self.assertEqual(result.chapter_count, 3)
+        self.assertEqual(result.new_chapter_count, 3)
+        self.assertEqual([chapter.title for chapter in result.chapters], [
+            "第31话",
+            "第30话",
+            "第29话",
+        ])
+        self.assertEqual([chapter.title for chapter in chapters], [
+            "第29话",
+            "第30话",
+            "第31话",
+        ])
+        self.assertEqual(
+            result.chapters[0].chapter_url,
+            "https://manhua.zaimanhua.com/view/HIGHbuqilaideyuehui/82936/191401",
+        )
 
     def test_sync_accepts_public_detail_url_and_tracks_new_visible_chapters(self):
         fixture = (FIXTURE_ROOT / "details_15599_with_chapters.html").read_text(encoding="utf-8")
@@ -219,6 +263,38 @@ class FakeFetcher:
             status_code=200,
             content_type="text/html; charset=utf-8",
             text=self.html,
+        )
+
+
+class FakeHtmlJsonFetcher:
+    def __init__(self, html_by_url: dict[str, str], json_by_url: dict[str, str]) -> None:
+        self.html_by_url = html_by_url
+        self.json_by_url = json_by_url
+        self.urls: list[str] = []
+        self.json_urls: list[str] = []
+
+    def fetch_html(self, url: str) -> FetchedHtml:
+        self.urls.append(url)
+        html = self.html_by_url.get(url)
+        if html is None:
+            raise RuntimeError(f"No HTML fixture for {url}")
+        return FetchedHtml(
+            url=url,
+            status_code=200,
+            content_type="text/html; charset=utf-8",
+            text=html,
+        )
+
+    def fetch_json(self, url: str) -> FetchedHtml:
+        self.json_urls.append(url)
+        payload = self.json_by_url.get(url)
+        if payload is None:
+            raise RuntimeError(f"No JSON fixture for {url}")
+        return FetchedHtml(
+            url=url,
+            status_code=200,
+            content_type="application/json; charset=utf-8",
+            text=payload,
         )
 
 

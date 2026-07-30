@@ -8,6 +8,7 @@ from panelscout.auth import (
     auth_start_url,
     default_auth_session_path,
 )
+from panelscout.adapters.zaimanhua import DETAIL_API_ROBOTS_ALLOW_PATH, build_detail_api_url
 from panelscout.config import PanelScoutConfig
 from panelscout.crawler import FetchedHtml, RobotsDisallowedError, RobotsPolicy
 
@@ -66,6 +67,78 @@ class AuthSessionTests(unittest.TestCase):
         self.assertIn("fixture html", fetched.text)
         self.assertEqual(fetcher.urls, ["https://manhua.zaimanhua.com/details/15599"])
 
+    def test_authenticated_fetcher_sends_storage_state_cookies_for_json(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_path = root / "sessions" / "zaimanhua.storage.json"
+            session_path.parent.mkdir(parents=True, exist_ok=True)
+            session_path.write_text(
+                """
+                {
+                  "cookies": [
+                    {
+                      "name": "zmh_session",
+                      "value": "test-token",
+                      "domain": ".zaimanhua.com",
+                      "path": "/",
+                      "secure": true,
+                      "expires": -1
+                    },
+                    {
+                      "name": "other",
+                      "value": "skip",
+                      "domain": "example.test",
+                      "path": "/"
+                    }
+                  ],
+                  "origins": [
+                    {
+                      "origin": "https://manhua.zaimanhua.com",
+                      "localStorage": [
+                        {
+                          "name": "token",
+                          "value": "eyJhbGciOiJub25lIn0.eyJ1aWQiOjkzODI0OCwic3ViIjoiaGFydWhpMjAwNSJ9."
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """,
+                encoding="utf-8",
+            )
+            opener = FakeJsonOpener()
+            robots_policy = RobotsPolicy.from_text(
+                "\n".join(
+                    [
+                        "User-agent: *",
+                        f"Allow: {DETAIL_API_ROBOTS_ALLOW_PATH}",
+                        "Disallow: /api/",
+                    ]
+                )
+            )
+            fetcher = AuthenticatedBrowserHtmlFetcher(
+                config=_test_config(root),
+                session_path=session_path,
+                robots_policy=robots_policy,
+                json_opener=opener,
+            )
+
+            fetched = fetcher.fetch_json(build_detail_api_url(15599))
+
+        self.assertEqual(fetched.text, '{"ok":true}')
+        self.assertEqual(opener.requests[0].get_header("Cookie"), "zmh_session=test-token")
+        self.assertEqual(
+            opener.requests[0].get_header("Authorization"),
+            "Bearer eyJhbGciOiJub25lIn0.eyJ1aWQiOjkzODI0OCwic3ViIjoiaGFydWhpMjAwNSJ9.",
+        )
+        self.assertEqual(opener.requests[0].get_header("Platform"), "pc")
+        self.assertIn("uid=938248", opener.requests[0].full_url)
+        self.assertNotIn("timestamp=0", opener.requests[0].full_url)
+        self.assertEqual(
+            opener.requests[0].get_header("Accept"),
+            "application/json,text/json,*/*",
+        )
+
 
 class FakeAuthenticatedBrowserHtmlFetcher(AuthenticatedBrowserHtmlFetcher):
     def __init__(self, **kwargs) -> None:
@@ -80,6 +153,23 @@ class FakeAuthenticatedBrowserHtmlFetcher(AuthenticatedBrowserHtmlFetcher):
             content_type="text/html; charset=utf-8",
             text="<html><body>fixture html</body></html>",
         )
+
+
+class FakeJsonResponse:
+    status = 200
+    headers = {"Content-Type": "application/json; charset=utf-8"}
+
+    def read(self) -> bytes:
+        return b'{"ok":true}'
+
+
+class FakeJsonOpener:
+    def __init__(self) -> None:
+        self.requests = []
+
+    def __call__(self, request, *, timeout):
+        self.requests.append(request)
+        return FakeJsonResponse()
 
 
 def _test_config(root: Path) -> PanelScoutConfig:

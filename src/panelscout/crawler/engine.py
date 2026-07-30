@@ -13,12 +13,19 @@ from urllib.parse import urlparse
 
 from panelscout.adapters.zaimanhua import (
     PUBLIC_DOMAINS,
+    build_detail_api_url,
     build_detail_url,
     build_search_url,
     extract_source_comic_id,
     normalize_public_url,
 )
-from panelscout.parsers.zaimanhua import ParsedChapter, parse_detail_page, parse_search_results
+from panelscout.parsers.zaimanhua import (
+    ParsedChapter,
+    ParsedComicDetail,
+    parse_detail_api_response,
+    parse_detail_page,
+    parse_search_results,
+)
 from panelscout.storage.models import Chapter, Comic, WatchlistEntry
 from panelscout.storage.repositories import ComicRepository
 
@@ -186,9 +193,17 @@ def sync_public_detail(
     content downloading.
     """
 
-    _source_comic_id, detail_url = normalize_detail_reference(reference)
+    source_comic_id, detail_url = normalize_detail_reference(reference)
     response = fetcher.fetch_html(detail_url)
     parsed_detail = parse_detail_page(_response_text(response), detail_url=detail_url)
+    if not parsed_detail.chapters:
+        api_detail = _fetch_detail_api_detail(
+            source_comic_id,
+            fetcher,
+            detail_url=detail_url,
+        )
+        if api_detail is not None and api_detail.chapters:
+            parsed_detail = _merge_api_detail(parsed_detail, api_detail)
     previous_comic = repository.get_comic_by_source(
         parsed_detail.comic.source,
         parsed_detail.comic.source_comic_id,
@@ -232,7 +247,44 @@ def _response_text(response: Any) -> str:
     text = getattr(response, "text", None)
     if isinstance(text, str):
         return text
-    raise TypeError("fetch_html() must return HTML text or an object with .text")
+    raise TypeError("fetcher must return text or an object with .text")
+
+
+def _fetch_detail_api_detail(
+    source_comic_id: str,
+    fetcher: Any,
+    *,
+    detail_url: str,
+) -> ParsedComicDetail | None:
+    fetch_json = getattr(fetcher, "fetch_json", None)
+    if not callable(fetch_json):
+        return None
+    response = fetch_json(build_detail_api_url(source_comic_id))
+    return parse_detail_api_response(_response_text(response), detail_url=detail_url)
+
+
+def _merge_api_detail(
+    html_detail: ParsedComicDetail,
+    api_detail: ParsedComicDetail,
+) -> ParsedComicDetail:
+    html_comic = html_detail.comic
+    api_comic = api_detail.comic
+    return ParsedComicDetail(
+        comic=replace(
+            html_comic,
+            title=html_comic.title or api_comic.title,
+            author=html_comic.author or api_comic.author,
+            status=html_comic.status or api_comic.status,
+            categories=html_comic.categories or api_comic.categories,
+            tags=html_comic.tags or api_comic.tags,
+            summary=html_comic.summary or api_comic.summary,
+            latest_chapter_title=html_comic.latest_chapter_title
+            or api_comic.latest_chapter_title,
+            detail_url=html_comic.detail_url or api_comic.detail_url,
+            cover_url=html_comic.cover_url or api_comic.cover_url,
+        ),
+        chapters=api_detail.chapters,
+    )
 
 
 def normalize_detail_reference(reference: str | int) -> tuple[str, str]:

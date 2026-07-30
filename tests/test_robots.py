@@ -1,6 +1,7 @@
 from pathlib import Path
 import unittest
 
+from panelscout.adapters.zaimanhua import DETAIL_API_ROBOTS_ALLOW_PATH, build_detail_api_url
 from panelscout.crawler.robots import (
     RobotsDisallowedError,
     RobotsLoadError,
@@ -26,6 +27,7 @@ class RobotsPolicyTests(unittest.TestCase):
         self.assertTrue(
             self.policy.can_fetch("https://manhua.zaimanhua.com/details/15599")
         )
+        self.assertTrue(self.policy.can_fetch(build_detail_api_url(15599)))
 
     def test_rejects_disallowed_paths(self):
         self.assertFalse(
@@ -44,6 +46,12 @@ class RobotsPolicyTests(unittest.TestCase):
     def test_assert_allowed_raises_for_disallowed_url(self):
         with self.assertRaises(RobotsDisallowedError):
             self.policy.assert_allowed("https://manhua.zaimanhua.com/api/search")
+
+    def test_project_detail_api_override_does_not_allow_all_api_paths(self):
+        policy = self.policy.with_allowed_paths((DETAIL_API_ROBOTS_ALLOW_PATH,))
+
+        self.assertTrue(policy.can_fetch(build_detail_api_url(15599)))
+        self.assertFalse(policy.can_fetch("https://manhua.zaimanhua.com/api/search"))
 
     def test_longest_matching_rule_wins(self):
         policy = RobotsPolicy.from_text(

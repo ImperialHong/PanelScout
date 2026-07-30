@@ -4,12 +4,17 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 import platform
 import subprocess
 from typing import Any, Callable
 
-from panelscout.adapters.zaimanhua import SOURCE_NAME, build_robots_url
+from panelscout.adapters.zaimanhua import (
+    DETAIL_API_ROBOTS_ALLOW_PATH,
+    SOURCE_NAME,
+    build_robots_url,
+)
 from panelscout.auth import (
     CHAPTER_IMAGE_RENDER_SELECTOR,
     AuthenticatedBrowserHtmlFetcher,
@@ -26,6 +31,7 @@ from panelscout.crawler import (
     HtmlFetcher,
     RobotsDisallowedError,
     RobotsLoadError,
+    RobotsPolicy,
     load_robots_policy,
     normalize_detail_reference,
     search_public_comics,
@@ -124,6 +130,7 @@ class PanelScoutUiApi:
                 session = ComicRepository(connection).upsert_auth_session(
                     AuthSession(
                         source=source,
+                        user_id=result.user_id or username,
                         storage_backend=result.storage_backend,
                         session_path=str(stored_path),
                         status=result.status,
@@ -485,10 +492,7 @@ class PanelScoutUiApi:
 
 
 def _create_html_fetcher(config: PanelScoutConfig) -> HtmlFetcher:
-    robots_policy = load_robots_policy(
-        build_robots_url(),
-        user_agent=config.user_agent,
-    )
+    robots_policy = _load_zaimanhua_robots_policy(config)
     return HtmlFetcher(config=config, robots_policy=robots_policy)
 
 
@@ -500,13 +504,11 @@ def _create_authenticated_html_fetcher(
     render_wait_seconds: float | None = None,
     render_image_snapshot: bool = False,
     render_click_texts: tuple[str, ...] = (),
+    metadata_html_passthrough: bool = False,
 ) -> AuthenticatedBrowserHtmlFetcher:
     if not session.session_path:
         raise AuthSessionError("auth session metadata has no session file path")
-    robots_policy = load_robots_policy(
-        build_robots_url(),
-        user_agent=config.user_agent,
-    )
+    robots_policy = _load_zaimanhua_robots_policy(config)
     fetcher_options: dict[str, Any] = {}
     if render_ready_selector is not None:
         fetcher_options["render_ready_selector"] = render_ready_selector
@@ -516,12 +518,21 @@ def _create_authenticated_html_fetcher(
         fetcher_options["render_image_snapshot"] = True
     if render_click_texts:
         fetcher_options["render_click_texts"] = render_click_texts
+    if metadata_html_passthrough:
+        fetcher_options["metadata_html_passthrough"] = True
     return AuthenticatedBrowserHtmlFetcher(
         config=config,
         session_path=session.session_path,
         robots_policy=robots_policy,
         **fetcher_options,
     )
+
+
+def _load_zaimanhua_robots_policy(config: PanelScoutConfig) -> RobotsPolicy:
+    return load_robots_policy(
+        build_robots_url(),
+        user_agent=config.user_agent,
+    ).with_allowed_paths((DETAIL_API_ROBOTS_ALLOW_PATH,))
 
 
 def _create_authenticated_search_fetcher(
@@ -540,7 +551,11 @@ def _create_authenticated_sync_fetcher(
     config: PanelScoutConfig,
     session: AuthSession,
 ) -> AuthenticatedBrowserHtmlFetcher:
-    return _create_authenticated_html_fetcher(config, session)
+    return _create_authenticated_html_fetcher(
+        config,
+        session,
+        metadata_html_passthrough=True,
+    )
 
 
 def _create_authenticated_download_fetcher(
@@ -708,11 +723,13 @@ def _load_optional_auth_session(
 
 
 def _auth_session_status_fields(session: AuthSession | None) -> dict[str, Any]:
+    user_id = _auth_display_user_id(session)
     if session is None:
         return {
             "authenticated": False,
             "status": "missing",
             "storage_backend": None,
+            "user_id": None,
             "reason": "not_configured",
         }
     if not session.session_path:
@@ -720,6 +737,7 @@ def _auth_session_status_fields(session: AuthSession | None) -> dict[str, Any]:
             "authenticated": False,
             "status": session.status,
             "storage_backend": session.storage_backend,
+            "user_id": user_id,
             "reason": "session_file_unrecorded",
         }
     session_file = Path(session.session_path).expanduser()
@@ -728,14 +746,26 @@ def _auth_session_status_fields(session: AuthSession | None) -> dict[str, Any]:
             "authenticated": False,
             "status": session.status,
             "storage_backend": session.storage_backend,
+            "user_id": user_id,
             "reason": "session_file_missing",
         }
     return {
         "authenticated": True,
         "status": session.status,
         "storage_backend": session.storage_backend,
+        "user_id": user_id,
         "reason": None,
     }
+
+
+def _auth_display_user_id(session: AuthSession | None) -> str | None:
+    if session is not None and session.user_id:
+        return session.user_id
+    for name in ("PANELSCOUT_AUTH_USERNAME", "PANELSCOUT_TEST_USERNAME"):
+        value = os.environ.get(name, "").strip()
+        if value:
+            return value
+    return None
 
 
 def _auth_session_from_payload(

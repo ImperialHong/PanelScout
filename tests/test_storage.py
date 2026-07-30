@@ -9,6 +9,7 @@ from panelscout.storage import (
     ComicRepository,
     StorageError,
     connect_database,
+    initialize_schema,
 )
 from panelscout.storage.models import Chapter
 
@@ -162,6 +163,37 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(counts["crawl_logs"], 1)
         self.assertEqual(counts["auth_sessions"], 1)
 
+    def test_schema_migration_adds_auth_session_user_id_to_existing_database(self):
+        with sqlite3.connect(":memory:") as connection:
+            connection.row_factory = sqlite3.Row
+            connection.executescript(
+                """
+                CREATE TABLE schema_migrations (
+                    version INTEGER PRIMARY KEY,
+                    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE auth_sessions (
+                    id INTEGER PRIMARY KEY,
+                    source TEXT NOT NULL UNIQUE,
+                    storage_backend TEXT NOT NULL,
+                    session_path TEXT,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_validated_at TEXT,
+                    expires_hint TEXT,
+                    status TEXT NOT NULL,
+                    warning_acknowledged_at TEXT
+                );
+                """
+            )
+
+            initialize_schema(connection)
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(auth_sessions)").fetchall()
+            }
+
+        self.assertIn("user_id", columns)
+
     def test_upserts_reads_and_deletes_auth_session_metadata(self):
         with connect_database(":memory:") as connection:
             repository = ComicRepository(connection)
@@ -169,6 +201,7 @@ class StorageTests(unittest.TestCase):
             first = repository.upsert_auth_session(
                 AuthSession(
                     source="zaimanhua",
+                    user_id="alice",
                     storage_backend="playwright_storage_state",
                     session_path="/tmp/zaimanhua.storage.json",
                     status="stored",
@@ -178,12 +211,23 @@ class StorageTests(unittest.TestCase):
             second = repository.upsert_auth_session(
                 AuthSession(
                     source="zaimanhua",
+                    user_id="bob",
                     storage_backend="playwright_storage_state",
                     session_path="/tmp/zaimanhua-updated.storage.json",
                     status="stored",
                     last_validated_at="2026-07-26T01:00:00+00:00",
                     expires_hint="unknown",
                     warning_acknowledged_at="2026-07-26T00:30:00+00:00",
+                )
+            )
+            repository.upsert_auth_session(
+                AuthSession(
+                    source="zaimanhua",
+                    storage_backend="playwright_storage_state",
+                    session_path="/tmp/zaimanhua-manual.storage.json",
+                    status="stored",
+                    last_validated_at="2026-07-26T02:00:00+00:00",
+                    expires_hint="unknown",
                 )
             )
             loaded = repository.get_auth_session("zaimanhua")
@@ -193,8 +237,9 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(first.id, second.id)
         self.assertIsNotNone(loaded)
         assert loaded is not None
-        self.assertEqual(loaded.session_path, "/tmp/zaimanhua-updated.storage.json")
-        self.assertEqual(loaded.last_validated_at, "2026-07-26T01:00:00+00:00")
+        self.assertEqual(loaded.user_id, "bob")
+        self.assertEqual(loaded.session_path, "/tmp/zaimanhua-manual.storage.json")
+        self.assertEqual(loaded.last_validated_at, "2026-07-26T02:00:00+00:00")
         self.assertEqual(loaded.expires_hint, "unknown")
         self.assertTrue(deleted)
         self.assertIsNone(missing)

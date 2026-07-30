@@ -1,0 +1,52 @@
+{
+  "errno": 0,
+  "errmsg": "success",
+  "data": {
+    "comicInfo": {
+      "id": 82936,
+      "title": "HIGH不起来的约会",
+      "comicPy": "HIGHbuqilaideyuehui",
+      "authorsTagList": [
+        { "tagName": "长门知大" }
+      ],
+      "statusTagList": [
+        { "tagName": "连载" }
+      ],
+      "cateTagList": [
+        { "tagName": "少年" }
+      ],
+      "themeTagList": [
+        { "tagName": "欢乐向" }
+      ],
+      "alias_name": "HIGH不起来的约会",
+      "description": "约会现场总是提不起劲的短篇喜剧。",
+      "lastUpdateChapterName": "第31话",
+      "cover": "https://images.zaimanhua.com/webpic/36/highbuqilaideyuehui.jpg",
+      "chapterList": [
+        {
+          "title": "连载",
+          "data": [
+            {
+              "chapter_id": 191401,
+              "chapter_title": "第31话",
+              "chapter_order": 310,
+              "updatetime": "2026-07-01"
+            },
+            {
+              "chapter_id": 190112,
+              "chapter_title": "第30话",
+              "chapter_order": 300,
+              "updatetime": "2026-06-24"
+            },
+            {
+              "chapter_id": 188900,
+              "chapter_title": "第29话",
+              "chapter_order": 290,
+              "updatetime": "2026-06-17"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

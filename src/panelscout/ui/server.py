@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -19,6 +19,12 @@ ALLOWED_UI_HOSTS = {"127.0.0.1"}
 
 class UiServerError(ValueError):
     """Raised when the local UI runner configuration is unsafe."""
+
+
+class LocalThreadingHTTPServer(ThreadingHTTPServer):
+    """Threaded local server that does not wait on abandoned long requests."""
+
+    daemon_threads = True
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -107,7 +113,7 @@ def serve_local_ui(
 
     app = UiHttpApplication(config, api=api)
     handler = _handler_factory(app)
-    server = HTTPServer((host, port), handler)
+    server = LocalThreadingHTTPServer((host, port), handler)
     actual_host, actual_port = server.server_address
     print(f"PanelScout UI: http://{actual_host}:{actual_port}")
     print("本地 UI 服务运行中；按 Ctrl+C 停止。")

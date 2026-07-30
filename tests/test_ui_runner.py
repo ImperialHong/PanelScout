@@ -38,6 +38,8 @@ class UiRunnerTests(unittest.TestCase):
         self.assertIn('id="login-form"', body)
         self.assertIn("退出登录", body)
         self.assertIn("加入队列", body)
+        self.assertIn("requestTimeoutFor", body)
+        self.assertIn("请求超时；网站响应较慢，请稍后重试。", body)
         self.assertIn('id="select-all-chapters"', body)
         self.assertIn("全选", body)
         self.assertIn("selectedChapters", body)
@@ -52,6 +54,14 @@ class UiRunnerTests(unittest.TestCase):
         self.assertIn("/api/auth/login", body)
         self.assertIn("/api/auth/logout", body)
         self.assertIn("api('/api/search'", body)
+        self.assertIn(
+            "api('/api/search', {\n          query: document.getElementById('search-query').value,\n          save: true\n        })",
+            body,
+        )
+        self.assertNotIn(
+            "api('/api/search', {\n          query: document.getElementById('search-query').value,\n          save: true,\n          ...authPayload()",
+            body,
+        )
         self.assertIn("api('/api/sync'", body)
         self.assertNotIn('id="auth-mode"', body)
         self.assertNotIn('id="plan-button"', body)

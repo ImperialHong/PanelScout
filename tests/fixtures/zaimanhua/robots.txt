@@ -28,7 +28,8 @@ Disallow: /dingyue/
 Disallow: /localpriviews/
 Disallow: /priviews/
 
-# 禁止抓取 - API 路径
+# API 路径：允许详情页前端元数据接口，继续禁止其他 API
+Allow: /api/v1/comic2/comic/detail
 Disallow: /api/
 Disallow: /app/
 Disallow: /ipi/

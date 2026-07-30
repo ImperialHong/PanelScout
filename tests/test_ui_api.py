@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from threading import Event
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 import unittest
 
 from panelscout.auth import BrowserLoginResult
@@ -362,11 +364,27 @@ class PanelScoutUiApiTests(unittest.TestCase):
         self.assertNotIn("secret", json.dumps(login, ensure_ascii=False))
         self.assertEqual(status["status"], "stored")
         self.assertTrue(status["authenticated"])
+        self.assertEqual(status["user_id"], "alice")
         self.assertIsNotNone(stored)
+        assert stored is not None
+        self.assertEqual(stored.user_id, "alice")
         self.assertFalse(session_path.exists())
         self.assertTrue(logout["removed"])
         self.assertTrue(logout["deleted_session_file"])
         self.assertFalse(after["authenticated"])
+
+    def test_auth_status_uses_environment_user_id_for_legacy_session(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = _test_config(root)
+            _store_auth_session(config, root / "sessions" / "zaimanhua.storage.json")
+            api = PanelScoutUiApi(config)
+
+            with patch.dict(os.environ, {"PANELSCOUT_TEST_USERNAME": "legacy-user"}):
+                status = api.auth_status({})
+
+        self.assertTrue(status["authenticated"])
+        self.assertEqual(status["user_id"], "legacy-user")
 
     def test_select_download_directory_uses_injected_local_picker(self):
         with TemporaryDirectory() as directory:

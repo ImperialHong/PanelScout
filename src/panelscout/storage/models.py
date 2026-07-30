@@ -101,12 +101,13 @@ class CrawlLog:
 
 @dataclass(frozen=True, kw_only=True)
 class AuthSession:
-    """Stored local session metadata, never plaintext credentials."""
+    """Stored local session metadata, never plaintext passwords or cookies."""
 
     source: str
     storage_backend: str
     status: str
     id: int | None = None
+    user_id: str | None = None
     session_path: str | None = None
     created_at: str | None = None
     last_validated_at: str | None = None

@@ -10,7 +10,11 @@ import sys
 from typing import Sequence
 
 from panelscout import __version__
-from panelscout.adapters.zaimanhua import SOURCE_NAME, build_robots_url
+from panelscout.adapters.zaimanhua import (
+    DETAIL_API_ROBOTS_ALLOW_PATH,
+    SOURCE_NAME,
+    build_robots_url,
+)
 from panelscout.auth import (
     CHAPTER_IMAGE_RENDER_SELECTOR,
     AuthenticatedBrowserHtmlFetcher,
@@ -540,7 +544,7 @@ def _handle_sync(args: argparse.Namespace, config) -> int:
     factory = getattr(args, "sync_fetcher_factory", None)
     if factory is None:
         if session is not None:
-            factory = lambda runtime_config: _create_authenticated_sync_fetcher(
+            factory = lambda runtime_config: _create_authenticated_detail_fetcher(
                 runtime_config,
                 session,
             )
@@ -708,13 +712,11 @@ def _create_authenticated_sync_fetcher(
     render_wait_seconds: float | None = None,
     render_image_snapshot: bool = False,
     render_click_texts: tuple[str, ...] = (),
+    metadata_html_passthrough: bool = False,
 ):
     if not session.session_path:
         raise AuthSessionError("auth session metadata has no session file path")
-    robots_policy = load_robots_policy(
-        build_robots_url(),
-        user_agent=config.user_agent,
-    )
+    robots_policy = _load_zaimanhua_robots_policy(config)
     fetcher_options = {}
     if render_ready_selector is not None:
         fetcher_options["render_ready_selector"] = render_ready_selector
@@ -724,6 +726,8 @@ def _create_authenticated_sync_fetcher(
         fetcher_options["render_image_snapshot"] = True
     if render_click_texts:
         fetcher_options["render_click_texts"] = render_click_texts
+    if metadata_html_passthrough:
+        fetcher_options["metadata_html_passthrough"] = True
     return AuthenticatedBrowserHtmlFetcher(
         config=config,
         session_path=session.session_path,
@@ -741,19 +745,21 @@ def _create_authenticated_search_fetcher(config, session: AuthSession):
     )
 
 
-def _create_search_fetcher(config):
-    robots_policy = load_robots_policy(
-        build_robots_url(),
-        user_agent=config.user_agent,
+def _create_authenticated_detail_fetcher(config, session: AuthSession):
+    return _create_authenticated_sync_fetcher(
+        config,
+        session,
+        metadata_html_passthrough=True,
     )
+
+
+def _create_search_fetcher(config):
+    robots_policy = _load_zaimanhua_robots_policy(config)
     return HtmlFetcher(config=config, robots_policy=robots_policy)
 
 
 def _create_sync_fetcher(config):
-    robots_policy = load_robots_policy(
-        build_robots_url(),
-        user_agent=config.user_agent,
-    )
+    robots_policy = _load_zaimanhua_robots_policy(config)
     return HtmlFetcher(config=config, robots_policy=robots_policy)
 
 
@@ -770,6 +776,13 @@ def _create_authenticated_download_fetcher(config, session: AuthSession):
         render_click_texts=("滚动阅读",),
         render_image_snapshot=True,
     )
+
+
+def _load_zaimanhua_robots_policy(config):
+    return load_robots_policy(
+        build_robots_url(),
+        user_agent=config.user_agent,
+    ).with_allowed_paths((DETAIL_API_ROBOTS_ALLOW_PATH,))
 
 
 def _create_image_fetcher(config):

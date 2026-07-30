@@ -465,14 +465,15 @@ class ComicRepository:
     def upsert_auth_session(self, session: AuthSession) -> AuthSession:
         """Insert or update local authenticated browser-session metadata.
 
-        Only storage-state metadata is persisted here. Plaintext usernames,
-        passwords, or other credentials must never be represented by this
-        model or written to the database.
+        Only storage-state metadata is persisted here. Plaintext passwords,
+        cookies, or other credentials must never be represented by this model
+        or written to the database.
         """
 
         now = _utc_now()
         values = {
             "source": session.source,
+            "user_id": session.user_id,
             "storage_backend": session.storage_backend,
             "session_path": session.session_path,
             "created_at": session.created_at or now,
@@ -485,6 +486,7 @@ class ComicRepository:
             """
             INSERT INTO auth_sessions (
                 source,
+                user_id,
                 storage_backend,
                 session_path,
                 created_at,
@@ -495,6 +497,7 @@ class ComicRepository:
             )
             VALUES (
                 :source,
+                :user_id,
                 :storage_backend,
                 :session_path,
                 :created_at,
@@ -504,6 +507,7 @@ class ComicRepository:
                 :warning_acknowledged_at
             )
             ON CONFLICT(source) DO UPDATE SET
+                user_id = COALESCE(excluded.user_id, auth_sessions.user_id),
                 storage_backend = excluded.storage_backend,
                 session_path = excluded.session_path,
                 last_validated_at = excluded.last_validated_at,
@@ -612,6 +616,7 @@ def _auth_session_from_row(row: sqlite3.Row) -> AuthSession:
     return AuthSession(
         id=row["id"],
         source=row["source"],
+        user_id=row["user_id"] if "user_id" in row.keys() else None,
         storage_backend=row["storage_backend"],
         session_path=row["session_path"],
         created_at=row["created_at"],

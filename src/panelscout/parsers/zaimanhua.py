@@ -9,11 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
+import json
 import re
 from urllib.parse import urlparse
 
 from panelscout.adapters.zaimanhua import (
     SOURCE_NAME,
+    build_chapter_url,
     build_detail_url,
     extract_source_comic_id,
     normalize_public_url,
@@ -89,6 +91,86 @@ def parse_detail_page(html: str, *, detail_url: str | None = None) -> ParsedComi
     )
 
     return ParsedComicDetail(comic=comic, chapters=tuple(_parse_chapter_links(html)))
+
+
+def parse_detail_api_response(
+    payload: str | dict[str, object],
+    *,
+    detail_url: str | None = None,
+) -> ParsedComicDetail:
+    """Parse ZaiManHua front-end detail JSON into comic and chapter metadata."""
+
+    if isinstance(payload, str):
+        try:
+            document = json.loads(payload)
+        except json.JSONDecodeError as error:
+            raise ParseError("Could not parse ZaiManHua detail API JSON") from error
+    else:
+        document = payload
+
+    if not isinstance(document, dict):
+        raise ParseError("ZaiManHua detail API payload must be a JSON object")
+    errno = document.get("errno")
+    if errno not in (None, 0, "0"):
+        raise ParseError(f"ZaiManHua detail API returned errno {errno}")
+
+    data = document.get("data")
+    if not isinstance(data, dict):
+        raise ParseError("ZaiManHua detail API response did not include data")
+    comic_info = data.get("comicInfo")
+    if not isinstance(comic_info, dict):
+        raise ParseError("ZaiManHua detail API response did not include comicInfo")
+
+    source_comic_id = (
+        _api_text(comic_info.get("id"))
+        or extract_source_comic_id(detail_url or "")
+        or _api_text(data.get("id"))
+    )
+    title = (
+        _api_text(comic_info.get("title"))
+        or _api_text(comic_info.get("comic_name"))
+        or _api_text(comic_info.get("name"))
+    )
+    if not source_comic_id:
+        raise ParseError("Could not determine ZaiManHua detail API source comic id")
+    if not title:
+        raise ParseError("Could not determine ZaiManHua detail API comic title")
+
+    comic_path = _api_text(comic_info.get("comicPy"))
+    author_names = _tag_names(comic_info.get("authorsTagList"))
+    category_names = _tag_names(comic_info.get("cateTagList"))
+    theme_names = _tag_names(comic_info.get("themeTagList"))
+    alias_names = _alias_names(comic_info)
+
+    comic = Comic(
+        source=SOURCE_NAME,
+        source_comic_id=source_comic_id,
+        title=title,
+        author="/".join(author_names) if author_names else _api_text(comic_info.get("author")),
+        status=_first_tag_name(comic_info.get("statusTagList"))
+        or _api_text(comic_info.get("status")),
+        categories=tuple(category_names),
+        tags=tuple(_dedupe_texts((*theme_names, *alias_names))),
+        summary=_api_text(comic_info.get("description")),
+        latest_chapter_title=_api_text(comic_info.get("lastUpdateChapterName"))
+        or _api_text(comic_info.get("last_name")),
+        detail_url=normalize_public_url(detail_url) or build_detail_url(source_comic_id),
+        cover_url=normalize_public_url(
+            _api_text(comic_info.get("cover"))
+            or _api_text(comic_info.get("cover_url"))
+        ),
+    )
+
+    return ParsedComicDetail(
+        comic=comic,
+        chapters=tuple(
+            _api_chapters(
+                _api_chapter_list(data, comic_info),
+                source_comic_id=source_comic_id,
+                comic_path=comic_path,
+            )
+        ),
+    )
 
 
 class ParseError(ValueError):
@@ -337,9 +419,147 @@ def _extract_id_from_html(html: str) -> str | None:
 def _extract_source_chapter_id(href: str) -> str | None:
     path = urlparse(href).path if "://" in href else href
     parts = [part for part in path.split("/") if part]
+    if len(parts) >= 4 and parts[0] == "view":
+        return parts[3]
     if len(parts) >= 3 and parts[0] == "view":
         return parts[2]
     return None
+
+
+def _api_chapters(
+    chapter_list: object,
+    *,
+    source_comic_id: str,
+    comic_path: str | None,
+) -> list[ParsedChapter]:
+    chapters: list[ParsedChapter] = []
+    for item in _iter_chapter_items(chapter_list):
+        source_chapter_id = (
+            _api_text(item.get("chapter_id"))
+            or _api_text(item.get("id"))
+            or _api_text(item.get("chapterId"))
+        )
+        title = (
+            _api_text(item.get("chapter_title"))
+            or _api_text(item.get("title"))
+            or _api_text(item.get("name"))
+        )
+        if not source_chapter_id or not title:
+            continue
+        chapters.append(
+            ParsedChapter(
+                source_chapter_id=source_chapter_id,
+                title=title,
+                chapter_order=_api_int(item.get("chapter_order")) or len(chapters) + 1,
+                chapter_url=build_chapter_url(
+                    source_comic_id,
+                    source_chapter_id,
+                    comic_path=comic_path,
+                ),
+                published_hint=_api_text(item.get("updatetime"))
+                or _api_text(item.get("update_time")),
+            )
+        )
+    return chapters
+
+
+def _api_chapter_list(
+    data: dict[str, object],
+    comic_info: dict[str, object],
+) -> object:
+    if "chapterList" in comic_info:
+        return comic_info.get("chapterList")
+    if "chapter_list" in comic_info:
+        return comic_info.get("chapter_list")
+    if "chapters" in comic_info:
+        return comic_info.get("chapters")
+    if "chapterList" in data:
+        return data.get("chapterList")
+    if "chapter_list" in data:
+        return data.get("chapter_list")
+    return data.get("chapters")
+
+
+def _iter_chapter_items(value: object) -> list[dict[str, object]]:
+    items: list[dict[str, object]] = []
+    if isinstance(value, dict):
+        chapter_data = value.get("data")
+        if isinstance(chapter_data, list):
+            values = chapter_data
+        else:
+            values = list(value.values())
+    elif isinstance(value, list):
+        values = value
+    else:
+        values = []
+
+    for entry in values:
+        if not isinstance(entry, dict):
+            continue
+        nested = entry.get("data")
+        if isinstance(nested, list):
+            items.extend(item for item in nested if isinstance(item, dict))
+        elif any(key in entry for key in ("chapter_id", "chapterId", "id")):
+            items.append(entry)
+    return items
+
+
+def _tag_names(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    names = []
+    for item in value:
+        if isinstance(item, dict):
+            names.append(_api_text(item.get("tagName")) or _api_text(item.get("name")) or "")
+        else:
+            names.append(_api_text(item) or "")
+    return _dedupe_texts(names)
+
+
+def _first_tag_name(value: object) -> str | None:
+    names = _tag_names(value)
+    return names[0] if names else None
+
+
+def _alias_names(comic_info: dict[str, object]) -> list[str]:
+    aliases: list[str] = []
+    for key in ("alias_name", "aliasName", "alias"):
+        raw = _api_text(comic_info.get(key))
+        if raw:
+            aliases.extend(part for part in re.split(r"[,，/、]", raw) if part)
+    return _dedupe_texts(aliases)
+
+
+def _dedupe_texts(values: object) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    if isinstance(values, (str, bytes)):
+        raw_values = [values]
+    else:
+        raw_values = list(values) if values is not None else []
+    for value in raw_values:
+        text = _api_text(value)
+        if text and text not in seen:
+            seen.add(text)
+            deduped.append(text)
+    return deduped
+
+
+def _api_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = _clean_text(str(value))
+    return text or None
+
+
+def _api_int(value: object) -> int | None:
+    text = _api_text(value)
+    if text is None:
+        return None
+    try:
+        return int(float(text))
+    except ValueError:
+        return None
 
 
 def _split_keywords(value: str | None) -> list[str]:

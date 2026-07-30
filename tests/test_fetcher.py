@@ -1,6 +1,7 @@
 from pathlib import Path
 import unittest
 
+from panelscout.adapters.zaimanhua import build_detail_api_url
 from panelscout.config import DEFAULT_USER_AGENT, default_config
 from panelscout.crawler.fetcher import (
     FetchBlockedError,
@@ -59,6 +60,30 @@ class HtmlFetcherTests(unittest.TestCase):
 
         with self.assertRaises(NonHtmlContentError):
             fetcher.fetch_html("https://manhua.zaimanhua.com/details/15599")
+
+    def test_fetches_json_with_config_user_agent(self):
+        opener = FakeOpener(
+            [
+                FakeResponse(
+                    headers={"Content-Type": "application/json; charset=utf-8"},
+                    body=b'{"ok":true}',
+                )
+            ]
+        )
+        fetcher = HtmlFetcher(
+            config=default_config(),
+            robots_policy=self.policy,
+            opener=opener,
+        )
+
+        result = fetcher.fetch_json(build_detail_api_url(15599))
+
+        self.assertEqual(result.text, '{"ok":true}')
+        self.assertEqual(opener.requests[0].get_header("User-agent"), DEFAULT_USER_AGENT)
+        self.assertEqual(
+            opener.requests[0].get_header("Accept"),
+            "application/json,text/json,*/*",
+        )
 
     def test_rejects_blocked_status(self):
         opener = FakeOpener([FakeResponse(status=429)])

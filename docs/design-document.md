@@ -1,8 +1,8 @@
 # PanelScout Design Document
 
-Version: 0.38
+Version: 0.39
 
-Date: 2026-07-28
+Date: 2026-07-30
 
 Chinese name: 格探
 
@@ -122,10 +122,11 @@ Responsibilities:
 - Build search URLs.
 - Build category/list URLs.
 - Normalize detail URLs.
+- Build the front-end detail metadata API URL used by current ZaiManHua detail pages.
 - Parse list cards.
 - Parse search results.
 - Parse comic detail metadata.
-- Parse chapter list metadata.
+- Parse chapter list metadata from visible legacy links or the front-end detail API `chapterList`.
 
 All site-specific selectors and URL patterns should live in this adapter, not in the generic crawler engine.
 
@@ -260,6 +261,7 @@ Current baseline:
 - Unit 35 switches supported authenticated reader pages to `滚动阅读` and snapshots rendered DOM/network image URLs before chapter image discovery.
 - Unit 36 simplifies the initial UI, replaces the visible auth switch with a `登录`/account menu, removes low-value plan/status buttons from the interactive download panel, adds multi-select/all-select chapters and a local download-directory picker, keeps the queue updated during download execution, and lets the local UI capture/logout the saved session without storing plaintext passwords.
 - Unit 38 changes the interactive UI download action from synchronous run-and-wait to enqueue-and-poll. Users can add selected chapters to the background queue while earlier downloads are still running.
+- Unit 39 adds detail API fallback for current ZaiManHua pages whose HTML no longer exposes real chapter links. Authenticated detail sync reads saved same-source storage-state token/cookies, sends the source's expected `Authorization` and `Platform` headers, and rewrites detail API `uid/timestamp` from the local token when present.
 - Authenticated download page rendering filters out reader chrome, logos, and layout images before planning files, then keeps image byte fetching on the existing conservative fetcher.
 - Server-side session validation remains response-driven only: blocked, expired, CAPTCHA, or restricted sessions must fail clearly instead of attempting recovery or bypass.
 - Public search/download workflows remain available when auth is disabled.
@@ -276,6 +278,7 @@ Rules:
 - Session files should be excluded from git.
 - Session files should be encrypted when practical, or stored through the OS credential store.
 - Authenticated crawling must still respect rate limits, robots rules where applicable, and source policy checks.
+- Current ZaiManHua detail API use is limited to `/api/v1/comic2/comic/detail`; PanelScout overlays a narrow local robots allow rule for that front-end metadata endpoint and continues to reject unrelated `/api/` paths.
 - Authenticated crawling must not expand the scope to paid, restricted, removed, or otherwise unavailable content.
 
 Suggested local storage:
@@ -653,18 +656,18 @@ Overall feasibility: medium-high for a local metadata and update tracker; medium
 
 Detailed Unit-level implementation and validation reports are maintained separately: [Unit Acceptance Reports](unit-acceptance-reports.md).
 
-Current accepted range: Unit 1 through Unit 38.
+Current accepted range: Unit 1 through Unit 39.
 
-Latest accepted Unit: Unit 38, Local UI Background Download Queue.
+Latest accepted Unit: Unit 39, Detail API Chapter Sync Fallback.
 
 High-level milestone status:
 
 - MVP 1: Project skeleton, SQLite storage, exporters, anonymous parser fixtures, robots policy, fetcher baseline, public search workflow, and safe CLI search integration are accepted.
 - MVP 2: Public detail sync, chapter metadata upsert, safe CLI sync integration, richer sync result, and report output are accepted. Authenticated Session Mode remains deferred to MVP 5.
 - MVP 3: Local watchlist, public watch update checks, Markdown watch reports, and local suggested watch schedule baseline are accepted.
-- Minimum search-to-download line: Search, save, detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level for public mode and at live-smoke level for authenticated mode, including lazy-loaded scroll-reader chapters.
+- Minimum search-to-download line: Search, save, detail/chapter sync, chapter selection, download plan, and explicit local image save are accepted at CLI/workflow level for public mode and at live-smoke level for authenticated mode, including detail API chapter lists and lazy-loaded scroll-reader chapters.
 - MVP 4: Static local UI shell, local SQLite data binding, Chinese UI copy baseline, UI command bridge, local-only UI runner/API, UI search/save, UI detail/chapter sync, UI download plan/run, UI download status read, and in-memory background download queue are accepted at fixture-test level.
-- MVP 5: Authenticated Session Mode has accepted login capture/status/logout, authenticated sync, authenticated search, authenticated chapter-page rendering, authenticated local UI reuse, and scroll-reader lazy image discovery baselines. Server-side validation and recovery UX remain pending.
+- MVP 5: Authenticated Session Mode has accepted login capture/status/logout, authenticated sync, authenticated detail API chapter fallback, authenticated search, authenticated chapter-page rendering, authenticated local UI reuse, and scroll-reader lazy image discovery baselines. Server-side validation and recovery UX remain pending.
 - Distribution: Windows portable zip packaging is accepted at repository/workflow level; a real GitHub Actions run on `windows-latest` is the next release gate.
 
 ## 16. Next Unit Plan
@@ -689,6 +692,7 @@ Planned next Units:
 - Unit 36: UI business-flow hardening: simplified search-first shell, login/account menu, chapter multi-select/all-select, directory picker, resilient download queue updates, clearer selected-chapter state, progress/readout polish, expired-session recovery copy, and manual local runner smoke checks. Status: accepted.
 - Unit 37: Windows portable release baseline: launcher, PyInstaller spec, Windows instructions, and GitHub Actions artifact/release workflow. Status: accepted at repository/workflow level; Windows runner artifact smoke remains the release gate.
 - Unit 38: Local UI background download queue: enqueue selected chapters, poll queue status, keep one sequential worker active, and allow new tasks to be added while earlier jobs run. Status: accepted at fixture-test level.
+- Unit 39: Detail API chapter sync fallback: current ZaiManHua details pages fall back to `/api/v1/comic2/comic/detail`; authenticated sync sends saved storage-state token/cookies and has been live-verified against 82936 (31 chapters) and 15599 (112 chapters). Status: accepted at unit-test and local HTTP smoke-test level.
 
 ## 17. Open Questions
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import sqlite3
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -114,6 +114,7 @@ CREATE INDEX IF NOT EXISTS idx_crawl_logs_url ON crawl_logs(url);
 CREATE TABLE IF NOT EXISTS auth_sessions (
     id INTEGER PRIMARY KEY,
     source TEXT NOT NULL UNIQUE,
+    user_id TEXT,
     storage_backend TEXT NOT NULL,
     session_path TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -128,6 +129,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_status ON auth_sessions(status);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (1);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (2);
 INSERT OR IGNORE INTO schema_migrations(version) VALUES (3);
+INSERT OR IGNORE INTO schema_migrations(version) VALUES (4);
 """
 
 
@@ -159,4 +161,14 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     """Create the SQLite schema required by the metadata storage baseline."""
 
     connection.executescript(SCHEMA_SQL)
+    _ensure_auth_session_user_id_column(connection)
     connection.commit()
+
+
+def _ensure_auth_session_user_id_column(connection: sqlite3.Connection) -> None:
+    columns = {
+        str(row["name"])
+        for row in connection.execute("PRAGMA table_info(auth_sessions)").fetchall()
+    }
+    if "user_id" not in columns:
+        connection.execute("ALTER TABLE auth_sessions ADD COLUMN user_id TEXT")

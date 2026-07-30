@@ -2,12 +2,19 @@ from pathlib import Path
 import unittest
 
 from panelscout.adapters.zaimanhua import (
+    DETAIL_API_ROBOTS_ALLOW_PATH,
+    build_chapter_url,
+    build_detail_api_url,
     build_detail_url,
     build_search_url,
     extract_source_comic_id,
     normalize_public_url,
 )
-from panelscout.parsers.zaimanhua import parse_detail_page, parse_search_results
+from panelscout.parsers.zaimanhua import (
+    parse_detail_api_response,
+    parse_detail_page,
+    parse_search_results,
+)
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "zaimanhua"
 
@@ -54,8 +61,47 @@ class ZaiManHuaParserTests(unittest.TestCase):
         )
         self.assertEqual(detail.chapters, ())
 
+    def test_parse_detail_api_response_extracts_frontend_chapter_list(self):
+        payload = (FIXTURE_ROOT / "detail_api_82936.json").read_text(encoding="utf-8")
+
+        detail = parse_detail_api_response(
+            payload,
+            detail_url="https://manhua.zaimanhua.com/details/82936",
+        )
+        comic = detail.comic
+
+        self.assertEqual(comic.source_comic_id, "82936")
+        self.assertEqual(comic.title, "HIGH不起来的约会")
+        self.assertEqual(comic.author, "长门知大")
+        self.assertEqual(comic.status, "连载")
+        self.assertEqual(comic.categories, ("少年",))
+        self.assertIn("欢乐向", comic.tags)
+        self.assertEqual(comic.latest_chapter_title, "第31话")
+        self.assertEqual(len(detail.chapters), 3)
+        self.assertEqual(detail.chapters[0].source_chapter_id, "191401")
+        self.assertEqual(detail.chapters[0].title, "第31话")
+        self.assertEqual(detail.chapters[0].chapter_order, 310)
+        self.assertEqual(detail.chapters[0].published_hint, "2026-07-01")
+        self.assertEqual(
+            detail.chapters[0].chapter_url,
+            "https://manhua.zaimanhua.com/view/HIGHbuqilaideyuehui/82936/191401",
+        )
+
     def test_url_helpers_normalize_public_urls(self):
         self.assertEqual(build_detail_url(15599), "https://manhua.zaimanhua.com/details/15599")
+        self.assertEqual(
+            build_detail_api_url(82936),
+            "https://manhua.zaimanhua.com/api/v1/comic2/comic/detail?channel=pc&app_name=zmh&version=1.0.0&timestamp=0&uid=0&id=82936",
+        )
+        self.assertEqual(DETAIL_API_ROBOTS_ALLOW_PATH, "/api/v1/comic2/comic/detail")
+        self.assertEqual(
+            build_chapter_url("82936", "191401", comic_path="HIGHbuqilaideyuehui"),
+            "https://manhua.zaimanhua.com/view/HIGHbuqilaideyuehui/82936/191401",
+        )
+        self.assertEqual(
+            build_chapter_url("15599", "1001"),
+            "https://manhua.zaimanhua.com/view/15599/1001.html",
+        )
         self.assertEqual(build_search_url("伪恋"), "https://manhua.zaimanhua.com/dynamic/%E4%BC%AA%E6%81%8B")
         self.assertEqual(extract_source_comic_id("/details/15599"), "15599")
         self.assertEqual(

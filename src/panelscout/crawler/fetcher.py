@@ -14,6 +14,7 @@ from panelscout.crawler.robots import RobotsPolicy
 
 BLOCKED_STATUSES = {401, 403, 429}
 HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+JSON_CONTENT_TYPES = ("application/json", "text/json", "application/problem+json")
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,31 @@ class HtmlFetcher:
     def fetch_html(self, url: str) -> FetchedHtml:
         """Fetch URL text after robots and response safety checks."""
 
+        return self._fetch_text(
+            url,
+            accept_header="text/html,application/xhtml+xml",
+            expected_content_types=HTML_CONTENT_TYPES,
+            expected_label="HTML",
+        )
+
+    def fetch_json(self, url: str) -> FetchedHtml:
+        """Fetch JSON text after robots and response safety checks."""
+
+        return self._fetch_text(
+            url,
+            accept_header="application/json,text/json,*/*",
+            expected_content_types=JSON_CONTENT_TYPES,
+            expected_label="JSON",
+        )
+
+    def _fetch_text(
+        self,
+        url: str,
+        *,
+        accept_header: str,
+        expected_content_types: tuple[str, ...],
+        expected_label: str,
+    ) -> FetchedHtml:
         if self.robots_policy is not None:
             self.robots_policy.assert_allowed(url, user_agent=self.user_agent)
 
@@ -70,7 +96,7 @@ class HtmlFetcher:
             url,
             headers={
                 "User-Agent": self.user_agent,
-                "Accept": "text/html,application/xhtml+xml",
+                "Accept": accept_header,
             },
         )
 
@@ -88,8 +114,10 @@ class HtmlFetcher:
             raise FetchHTTPError(f"HTTP error {status_code}")
 
         content_type = _response_header(response, "Content-Type")
-        if not _is_html_content_type(content_type):
-            raise NonHtmlContentError(f"Expected HTML response, got {content_type or 'unknown'}")
+        if not _is_content_type(content_type, expected_content_types):
+            raise NonHtmlContentError(
+                f"Expected {expected_label} response, got {content_type or 'unknown'}"
+            )
 
         raw_body = response.read()
         self._last_fetch_by_host[_host_key(url)] = self._monotonic()
@@ -171,9 +199,9 @@ def _response_header(response: Any, header: str) -> str:
     return ""
 
 
-def _is_html_content_type(content_type: str) -> bool:
+def _is_content_type(content_type: str, allowed_content_types: tuple[str, ...]) -> bool:
     normalized = content_type.split(";", 1)[0].strip().lower()
-    return normalized in HTML_CONTENT_TYPES
+    return normalized in allowed_content_types
 
 
 def _charset_from_content_type(content_type: str) -> str:

@@ -7,13 +7,17 @@ login form, and persists only browser storage state for later requests.
 
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
 import time
-from typing import Callable
-from urllib.parse import urlparse
+from typing import Any, Callable
+from urllib.error import HTTPError
+from urllib.parse import parse_qsl, urlencode, urlparse
+from urllib.request import Request, build_opener
 
 from panelscout.adapters.zaimanhua import PUBLIC_BASE_URL, SOURCE_NAME
 from panelscout.config import PanelScoutConfig
@@ -21,6 +25,7 @@ from panelscout.crawler.fetcher import (
     FetchBlockedError,
     FetchHTTPError,
     FetchedHtml,
+    HtmlFetcher,
     NonHtmlContentError,
 )
 from panelscout.crawler.robots import RobotsPolicy
@@ -30,6 +35,7 @@ DEFAULT_AUTH_STORAGE_BACKEND = "playwright_storage_state"
 AUTH_SESSION_STATUS_STORED = "stored"
 BLOCKED_STATUSES = {401, 403, 429}
 HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+JSON_CONTENT_TYPES = ("application/json", "text/json", "application/problem+json")
 IMAGE_URL_PATTERN = re.compile(
     r"\.(?:jpg|jpeg|png|webp|gif|bmp|avif)(?:\?|$)",
     re.IGNORECASE,
@@ -385,6 +391,8 @@ class AuthenticatedBrowserHtmlFetcher:
         render_ready_selector: str | None = CHAPTER_LINK_SELECTOR,
         render_image_snapshot: bool = False,
         render_click_texts: tuple[str, ...] = (),
+        metadata_html_passthrough: bool = False,
+        json_opener: Any | None = None,
         request_delay_seconds: float | None = None,
         sleeper: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
@@ -400,6 +408,8 @@ class AuthenticatedBrowserHtmlFetcher:
         self.render_ready_selector = render_ready_selector
         self.render_image_snapshot = render_image_snapshot
         self.render_click_texts = render_click_texts
+        self.metadata_html_passthrough = metadata_html_passthrough
+        self.json_opener = json_opener or build_opener()
         self.request_delay_seconds = (
             request_delay_seconds
             if request_delay_seconds is not None
@@ -416,9 +426,75 @@ class AuthenticatedBrowserHtmlFetcher:
             self.robots_policy.assert_allowed(url, user_agent=self.user_agent)
 
         self._respect_delay(url)
-        fetched = self._fetch_with_playwright(url)
+        if self.metadata_html_passthrough and _is_detail_page_url(url):
+            fetched = self._fetch_public_html(url)
+        else:
+            fetched = self._fetch_with_playwright(url)
         self._last_fetch_by_host[_host_key(url)] = self._monotonic()
         return fetched
+
+    def fetch_json(self, url: str) -> FetchedHtml:
+        """Fetch front-end JSON metadata with saved local session cookies."""
+
+        if self.robots_policy is not None:
+            self.robots_policy.assert_allowed(url, user_agent=self.user_agent)
+
+        self._respect_delay(url)
+        fetched = self._fetch_json_with_storage_state(url)
+        self._last_fetch_by_host[_host_key(url)] = self._monotonic()
+        return fetched
+
+    def _fetch_public_html(self, url: str) -> FetchedHtml:
+        fetcher = HtmlFetcher(
+            config=self.config,
+            robots_policy=self.robots_policy,
+            timeout_seconds=self.timeout_seconds,
+            request_delay_seconds=0,
+            sleeper=self._sleep,
+            monotonic=self._monotonic,
+        )
+        return fetcher.fetch_html(url)
+
+    def _fetch_json_with_storage_state(self, url: str) -> FetchedHtml:
+        storage_state = _read_storage_state(self.session_path)
+        token = _storage_state_token(storage_state, url)
+        request_url = _api_url_with_session_identity(url, token)
+        cookie_header = _storage_state_cookie_header_from_payload(storage_state, request_url)
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "application/json,text/json,*/*",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+            headers["Platform"] = "pc"
+        if cookie_header:
+            headers["Cookie"] = cookie_header
+        request = Request(request_url, headers=headers)
+        try:
+            response = _open(self.json_opener, request, self.timeout_seconds)
+        except HTTPError as error:
+            if error.code in BLOCKED_STATUSES:
+                raise FetchBlockedError(
+                    f"Server blocked authenticated request with status {error.code}"
+                ) from error
+            raise FetchHTTPError(f"HTTP error {error.code}") from error
+
+        status_code = _response_status(response)
+        if status_code in BLOCKED_STATUSES:
+            raise FetchBlockedError(f"Server blocked authenticated request with status {status_code}")
+        if status_code >= 400:
+            raise FetchHTTPError(f"HTTP error {status_code}")
+
+        content_type = _response_header(response, "Content-Type")
+        if not _is_json_content_type(content_type):
+            raise NonHtmlContentError(f"Expected JSON response, got {content_type or 'unknown'}")
+        raw_body = response.read()
+        return FetchedHtml(
+            url=request_url,
+            status_code=status_code,
+            content_type=content_type,
+            text=raw_body.decode(_charset_from_content_type(content_type), errors="replace"),
+        )
 
     def crawl_delay(self) -> float:
         robots_delay = (
@@ -592,10 +668,158 @@ def _record_image_response(response, image_values: list[str]) -> None:
         return
 
 
+def _storage_state_cookie_header(session_path: Path, url: str) -> str:
+    return _storage_state_cookie_header_from_payload(_read_storage_state(session_path), url)
+
+
+def _read_storage_state(session_path: Path) -> dict[str, object]:
+    try:
+        payload = json.loads(session_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise AuthSessionError(f"auth session file could not be read: {session_path}") from error
+    return payload if isinstance(payload, dict) else {}
+
+
+def _storage_state_cookie_header_from_payload(payload: dict[str, object], url: str) -> str:
+    cookies = payload.get("cookies") if isinstance(payload, dict) else None
+    if not isinstance(cookies, list):
+        return ""
+
+    parsed = urlparse(url)
+    pairs = []
+    for cookie in cookies:
+        if not isinstance(cookie, dict) or not _cookie_matches_url(cookie, parsed):
+            continue
+        name = str(cookie.get("name") or "").strip()
+        value = str(cookie.get("value") or "")
+        if name:
+            pairs.append(f"{name}={value}")
+    return "; ".join(pairs)
+
+
+def _storage_state_token(payload: dict[str, object], url: str) -> str | None:
+    parsed = urlparse(url)
+    expected_origin = f"{parsed.scheme}://{parsed.netloc}"
+    origins = payload.get("origins")
+    if not isinstance(origins, list):
+        return None
+    for origin in origins:
+        if not isinstance(origin, dict) or origin.get("origin") != expected_origin:
+            continue
+        local_storage = origin.get("localStorage")
+        if not isinstance(local_storage, list):
+            continue
+        for item in local_storage:
+            if not isinstance(item, dict) or item.get("name") != "token":
+                continue
+            token = str(item.get("value") or "").strip()
+            return token or None
+    return None
+
+
+def _api_url_with_session_identity(url: str, token: str | None) -> str:
+    uid = _uid_from_jwt(token)
+    if uid is None:
+        return url
+
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    if "uid" in query:
+        query["uid"] = uid
+    if "timestamp" in query:
+        query["timestamp"] = str(int(time.time() * 1000))
+    return parsed._replace(query=urlencode(query)).geturl()
+
+
+def _uid_from_jwt(token: str | None) -> str | None:
+    if not token:
+        return None
+    parts = token.split(".")
+    if len(parts) < 2:
+        return None
+    payload = parts[1] + "=" * (-len(parts[1]) % 4)
+    try:
+        decoded = json.loads(base64.urlsafe_b64decode(payload.encode()).decode())
+    except (binascii.Error, UnicodeDecodeError, ValueError, json.JSONDecodeError):
+        return None
+    uid = decoded.get("uid") if isinstance(decoded, dict) else None
+    if uid is None:
+        return None
+    return str(uid)
+
+
+def _cookie_matches_url(cookie: dict[str, object], parsed_url) -> bool:
+    host = parsed_url.netloc.lower()
+    domain = str(cookie.get("domain") or "").lstrip(".").lower()
+    if not domain or (host != domain and not host.endswith(f".{domain}")):
+        return False
+
+    path = str(cookie.get("path") or "/")
+    if not (parsed_url.path or "/").startswith(path):
+        return False
+
+    if bool(cookie.get("secure")) and parsed_url.scheme != "https":
+        return False
+
+    expires = cookie.get("expires")
+    if isinstance(expires, int | float) and expires > 0 and expires < time.time():
+        return False
+    return True
+
+
+def _open(opener, request: Request, timeout_seconds: float):
+    if callable(opener):
+        return opener(request, timeout=timeout_seconds)
+    return opener.open(request, timeout=timeout_seconds)
+
+
+def _response_status(response) -> int:
+    if getattr(response, "status", None) is not None:
+        return int(response.status)
+    if hasattr(response, "getcode"):
+        return int(response.getcode())
+    return 200
+
+
+def _response_header(response, header: str) -> str:
+    if hasattr(response, "headers") and response.headers is not None:
+        value = response.headers.get(header)
+        if value is not None:
+            return str(value)
+    if hasattr(response, "info"):
+        info = response.info()
+        if hasattr(info, "get"):
+            value = info.get(header)
+            if value is not None:
+                return str(value)
+    return ""
+
+
+def _charset_from_content_type(content_type: str) -> str:
+    for part in content_type.split(";")[1:]:
+        key, _, value = part.strip().partition("=")
+        if key.lower() == "charset" and value:
+            return value.strip()
+    return "utf-8"
+
+
 def _host_key(url: str) -> str:
     return urlparse(url).netloc.lower()
+
+
+def _is_detail_page_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return (
+        parsed.netloc.lower() == urlparse(PUBLIC_BASE_URL).netloc
+        and parsed.path.startswith("/details/")
+    )
 
 
 def _is_html_content_type(content_type: str) -> bool:
     normalized = content_type.split(";", 1)[0].strip().lower()
     return normalized in HTML_CONTENT_TYPES
+
+
+def _is_json_content_type(content_type: str) -> bool:
+    normalized = content_type.split(";", 1)[0].strip().lower()
+    return normalized in JSON_CONTENT_TYPES

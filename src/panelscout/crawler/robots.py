@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import re
+from typing import Iterable
 from urllib.parse import urlparse
 from urllib.request import Request, build_opener
 
@@ -108,6 +109,35 @@ class RobotsPolicy:
 
         if not self.can_fetch(url, user_agent=user_agent):
             raise RobotsDisallowedError(f"Robots policy disallows {url}")
+
+    def with_allowed_paths(
+        self,
+        patterns: Iterable[str],
+        *,
+        user_agent: str = "*",
+    ) -> "RobotsPolicy":
+        """Return a copy with extra Allow rules in the matching user-agent group."""
+
+        allowed_rules = tuple(
+            RobotsRule(pattern=pattern, allowed=True)
+            for pattern in patterns
+            if pattern
+        )
+        if not allowed_rules:
+            return self
+
+        normalized_agent = user_agent.lower()
+        groups: list[RobotsGroup] = []
+        added = False
+        for group in self.groups:
+            if normalized_agent in group.user_agents:
+                groups.append(replace(group, rules=allowed_rules + group.rules))
+                added = True
+            else:
+                groups.append(group)
+        if not added:
+            groups.append(RobotsGroup(user_agents=(normalized_agent,), rules=allowed_rules))
+        return replace(self, groups=tuple(groups))
 
     def crawl_delay(
         self,

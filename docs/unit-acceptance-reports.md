@@ -1161,3 +1161,48 @@ Validation summary:
 - `compileall` passed for `src` and `tests`.
 - Queue persistence across local server restarts, cancel, pause/resume, retry buttons, and SQLite-backed recovery remain pending.
 - No plaintext credentials, cookies, storage-state files, paid/VIP bypass, source restriction bypass, public hosting, or remote queue service was introduced.
+
+### Unit 39: Detail API Chapter Sync Fallback
+
+Status: accepted
+
+Validation owner: Codex main
+
+Accepted on: 2026-07-30
+
+Implemented files:
+
+- `README.md`
+- `docs/design-document.md`
+- `docs/unit-acceptance-reports.md`
+- `src/panelscout/adapters/zaimanhua.py`
+- `src/panelscout/auth/session.py`
+- `src/panelscout/cli.py`
+- `src/panelscout/crawler/engine.py`
+- `src/panelscout/crawler/fetcher.py`
+- `src/panelscout/crawler/robots.py`
+- `src/panelscout/parsers/__init__.py`
+- `src/panelscout/parsers/zaimanhua.py`
+- `src/panelscout/ui/api.py`
+- `tests/fixtures/zaimanhua/detail_api_82936.json`
+- `tests/fixtures/zaimanhua/robots.txt`
+- `tests/test_auth_session.py`
+- `tests/test_detail_sync_workflow.py`
+- `tests/test_fetcher.py`
+- `tests/test_robots.py`
+- `tests/test_zaimanhua_parser.py`
+
+Validation summary:
+
+- Added a current ZaiManHua detail API URL helper for `/api/v1/comic2/comic/detail` and current reader URL generation for `/view/{comicPy}/{comicId}/{chapterId}`.
+- Added a narrow local robots allow rule for the detail metadata API while keeping unrelated `/api/` paths disallowed.
+- Added JSON fetch support to the shared fetcher and parser support for `data.comicInfo.chapterList`.
+- Detail sync now falls back to the front-end detail API when details HTML has no real chapter links.
+- Authenticated detail sync no longer needs to start Playwright just to read metadata HTML/JSON: details HTML uses a lightweight public request, and detail JSON uses saved same-source storage-state cookies plus the source's `Authorization` and `Platform` headers.
+- Authenticated detail JSON rewrites `uid` and `timestamp` from the saved local token when available.
+- Focused validation passed with `PYTHONPATH=src .venv/bin/python -m unittest tests.test_auth_session tests.test_zaimanhua_parser tests.test_detail_sync_workflow tests.test_fetcher tests.test_robots tests.test_ui_api tests.test_ui_runner tests.test_cli -v`.
+- Live local workflow validation passed for `82936`: authenticated sync returned `31` chapters.
+- Live local workflow validation passed for `15599`: authenticated sync returned `112` chapters, matching manual browser observation.
+- Live local HTTP API smoke passed at `http://127.0.0.1:8766`: `/api/auth/status` returned the saved test account as authenticated; `/api/sync` returned `31` chapters for `82936` and `112` chapters for `15599`.
+- `compileall` and `git diff --check` passed.
+- No plaintext credentials, cookies, storage-state files, paid/VIP bypass, source restriction bypass, public hosting, or remote queue service was introduced.
