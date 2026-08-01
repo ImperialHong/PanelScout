@@ -1,0 +1,35 @@
+{
+  "errno": 0,
+  "errmsg": "",
+  "data": {
+    "list": [
+      {
+        "id": 82936,
+        "authors": "すずゆき",
+        "cover": "https://images.zaimanhua.com/webpic/9/73163b71ae9c4c4c92e66469095b35ae.jpg",
+        "last_name": "第31话",
+        "status": "连载中",
+        "title": "HIGH不起来的约会",
+        "types": "爱情",
+        "alias_name": "HIGH不起來的約會，嗨不起来的约会，嗨不起來的約會",
+        "comic_py": "highbuqilaideyuehui",
+        "last_update_chapter_name": "第31话"
+      },
+      {
+        "id": 61008,
+        "authors": "postcard",
+        "cover": "https://images.zaimanhua.com/webpic/6/xianggenghutaoquyuehuizhld.jpg",
+        "last_name": "第07话",
+        "status": "连载中",
+        "title": "想跟胡桃去约会之类的",
+        "types": "爱情",
+        "alias_name": "好想和胡桃约会啊",
+        "comic_py": "xianggenghutaoquyuehuizhld",
+        "last_update_chapter_name": "第07话"
+      }
+    ],
+    "page": 1,
+    "size": 24,
+    "total": 58
+  }
+}

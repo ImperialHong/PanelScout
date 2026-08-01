@@ -8,9 +8,14 @@ from panelscout.auth import (
     auth_start_url,
     default_auth_session_path,
 )
-from panelscout.adapters.zaimanhua import DETAIL_API_ROBOTS_ALLOW_PATH, build_detail_api_url
+from panelscout.adapters.zaimanhua import (
+    CHAPTER_DETAIL_API_ROBOTS_ALLOW_PATH,
+    DETAIL_API_ROBOTS_ALLOW_PATH,
+    build_detail_api_url,
+)
 from panelscout.config import PanelScoutConfig
 from panelscout.crawler import FetchedHtml, RobotsDisallowedError, RobotsPolicy
+from panelscout.downloader.discovery import parse_public_chapter_images
 
 
 class AuthSessionTests(unittest.TestCase):
@@ -139,6 +144,61 @@ class AuthSessionTests(unittest.TestCase):
             "application/json,text/json,*/*",
         )
 
+    def test_authenticated_reader_fetch_uses_chapter_api_snapshot(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            session_path = root / "sessions" / "zaimanhua.storage.json"
+            session_path.parent.mkdir(parents=True, exist_ok=True)
+            session_path.write_text('{"cookies":[],"origins":[]}', encoding="utf-8")
+            opener = FakeJsonOpener(
+                """
+                {
+                  "errno": 0,
+                  "errmsg": "",
+                  "data": {
+                    "chapterInfo": {
+                      "page_url": [
+                        "https://images.zaimanhua.com/h%2Fsample%2F001.jpg",
+                        "https://images.zaimanhua.com/h%2Fsample%2F002.jpg"
+                      ]
+                    }
+                  }
+                }
+                """
+            )
+            robots_policy = RobotsPolicy.from_text(
+                "\n".join(
+                    [
+                        "User-agent: *",
+                        "Allow: /view/",
+                        f"Allow: {CHAPTER_DETAIL_API_ROBOTS_ALLOW_PATH}",
+                        "Disallow: /api/",
+                    ]
+                )
+            )
+            fetcher = AuthenticatedBrowserHtmlFetcher(
+                config=_test_config(root),
+                session_path=session_path,
+                robots_policy=robots_policy,
+                render_image_snapshot=True,
+                json_opener=opener,
+            )
+            reader_url = "https://manhua.zaimanhua.com/view/highbuqilaideyuehui/82936/191401"
+
+            fetched = fetcher.fetch_html(reader_url)
+            images = parse_public_chapter_images(fetched.text, chapter_url=reader_url)
+
+        self.assertIn("/api/v1/comic2/chapter/detail", opener.requests[0].full_url)
+        self.assertIn("comic_id=82936", opener.requests[0].full_url)
+        self.assertIn("chapter_id=191401", opener.requests[0].full_url)
+        self.assertEqual(
+            [image.source_url for image in images],
+            [
+                "https://images.zaimanhua.com/h%2Fsample%2F001.jpg",
+                "https://images.zaimanhua.com/h%2Fsample%2F002.jpg",
+            ],
+        )
+
 
 class FakeAuthenticatedBrowserHtmlFetcher(AuthenticatedBrowserHtmlFetcher):
     def __init__(self, **kwargs) -> None:
@@ -159,17 +219,21 @@ class FakeJsonResponse:
     status = 200
     headers = {"Content-Type": "application/json; charset=utf-8"}
 
+    def __init__(self, body: str = '{"ok":true}') -> None:
+        self.body = body
+
     def read(self) -> bytes:
-        return b'{"ok":true}'
+        return self.body.encode("utf-8")
 
 
 class FakeJsonOpener:
-    def __init__(self) -> None:
+    def __init__(self, body: str = '{"ok":true}') -> None:
+        self.body = body
         self.requests = []
 
     def __call__(self, request, *, timeout):
         self.requests.append(request)
-        return FakeJsonResponse()
+        return FakeJsonResponse(self.body)
 
 
 def _test_config(root: Path) -> PanelScoutConfig:

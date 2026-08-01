@@ -19,7 +19,12 @@ from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlparse
 from urllib.request import Request, build_opener
 
-from panelscout.adapters.zaimanhua import PUBLIC_BASE_URL, SOURCE_NAME
+from panelscout.adapters.zaimanhua import (
+    PUBLIC_BASE_URL,
+    SOURCE_NAME,
+    build_chapter_detail_api_url,
+    extract_reader_identifiers,
+)
 from panelscout.config import PanelScoutConfig
 from panelscout.crawler.fetcher import (
     FetchBlockedError,
@@ -426,7 +431,10 @@ class AuthenticatedBrowserHtmlFetcher:
             self.robots_policy.assert_allowed(url, user_agent=self.user_agent)
 
         self._respect_delay(url)
-        if self.metadata_html_passthrough and _is_detail_page_url(url):
+        reader_identifiers = extract_reader_identifiers(url)
+        if reader_identifiers is not None and self.render_image_snapshot:
+            fetched = self._fetch_chapter_detail_api_html(url, reader_identifiers)
+        elif self.metadata_html_passthrough and _is_detail_page_url(url):
             fetched = self._fetch_public_html(url)
         else:
             fetched = self._fetch_with_playwright(url)
@@ -494,6 +502,28 @@ class AuthenticatedBrowserHtmlFetcher:
             status_code=status_code,
             content_type=content_type,
             text=raw_body.decode(_charset_from_content_type(content_type), errors="replace"),
+        )
+
+    def _fetch_chapter_detail_api_html(
+        self,
+        reader_url: str,
+        identifiers: tuple[str, str],
+    ) -> FetchedHtml:
+        source_comic_id, source_chapter_id = identifiers
+        api_url = build_chapter_detail_api_url(
+            source_comic_id,
+            source_chapter_id,
+            timestamp=int(time.time() * 1000),
+        )
+        if self.robots_policy is not None:
+            self.robots_policy.assert_allowed(api_url, user_agent=self.user_agent)
+        fetched = self._fetch_json_with_storage_state(api_url)
+        page_urls = _chapter_page_urls_from_api_payload(fetched.text)
+        return FetchedHtml(
+            url=reader_url,
+            status_code=fetched.status_code,
+            content_type="text/html; charset=utf-8",
+            text=_chapter_image_snapshot_html(page_urls),
         )
 
     def crawl_delay(self) -> float:
@@ -648,6 +678,43 @@ def _append_rendered_image_snapshot(
         f"window.__PANELSCOUT_CHAPTER_IMAGES__ = {snapshot};"
         f"</script>"
     )
+
+
+def _chapter_image_snapshot_html(image_values: list[str]) -> str:
+    snapshot = json.dumps(image_values, ensure_ascii=False)
+    return (
+        "<html><body>"
+        f"<script type=\"application/json\">"
+        f"window.__PANELSCOUT_CHAPTER_IMAGES__ = {snapshot};"
+        f"</script>"
+        "</body></html>"
+    )
+
+
+def _chapter_page_urls_from_api_payload(payload_text: str) -> list[str]:
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as error:
+        raise NonHtmlContentError("chapter detail API returned invalid JSON") from error
+
+    if not isinstance(payload, dict):
+        raise NonHtmlContentError("chapter detail API returned an unexpected payload")
+
+    errno = payload.get("errno")
+    if errno not in (0, "0", None):
+        message = str(payload.get("errmsg") or "chapter detail API failed")
+        raise FetchHTTPError(f"chapter detail API error {errno}: {message}")
+
+    data = payload.get("data")
+    chapter_info = data.get("chapterInfo") if isinstance(data, dict) else None
+    page_urls = chapter_info.get("page_url") if isinstance(chapter_info, dict) else None
+    if not isinstance(page_urls, list):
+        raise NonHtmlContentError("chapter detail API did not return page URLs")
+
+    normalized = [str(value).strip() for value in page_urls if str(value).strip()]
+    if not normalized:
+        raise NonHtmlContentError("chapter detail API returned no page URLs")
+    return normalized
 
 
 def _rendered_image_values(page) -> list[str]:

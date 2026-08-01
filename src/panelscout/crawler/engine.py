@@ -15,6 +15,7 @@ from panelscout.adapters.zaimanhua import (
     PUBLIC_DOMAINS,
     build_detail_api_url,
     build_detail_url,
+    build_search_api_url,
     build_search_url,
     extract_source_comic_id,
     normalize_public_url,
@@ -24,6 +25,7 @@ from panelscout.parsers.zaimanhua import (
     ParsedComicDetail,
     parse_detail_api_response,
     parse_detail_page,
+    parse_search_api_response,
     parse_search_results,
 )
 from panelscout.storage.models import Chapter, Comic, WatchlistEntry
@@ -103,9 +105,13 @@ def search_public_comics(
         raise ValueError("Search query cannot be blank")
 
     url = build_search_url(normalized_query)
-    response = fetcher.fetch_html(url)
-    html = _response_text(response)
-    parsed_comics = parse_search_results(html)
+    fetch_json = getattr(fetcher, "fetch_json", None)
+    if callable(fetch_json):
+        response = fetch_json(build_search_api_url(normalized_query))
+        parsed_comics = parse_search_api_response(_response_text(response))
+    else:
+        response = fetcher.fetch_html(url)
+        parsed_comics = parse_search_results(_response_text(response))
 
     if repository is None:
         return PublicSearchResult(

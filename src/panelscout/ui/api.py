@@ -11,7 +11,9 @@ import subprocess
 from typing import Any, Callable
 
 from panelscout.adapters.zaimanhua import (
+    CHAPTER_DETAIL_API_ROBOTS_ALLOW_PATH,
     DETAIL_API_ROBOTS_ALLOW_PATH,
+    SEARCH_API_ROBOTS_ALLOW_PATH,
     SOURCE_NAME,
     build_robots_url,
 )
@@ -544,7 +546,13 @@ def _load_zaimanhua_robots_policy(config: PanelScoutConfig) -> RobotsPolicy:
     return load_robots_policy(
         build_robots_url(),
         user_agent=config.user_agent,
-    ).with_allowed_paths((DETAIL_API_ROBOTS_ALLOW_PATH,))
+    ).with_allowed_paths(
+        (
+            SEARCH_API_ROBOTS_ALLOW_PATH,
+            DETAIL_API_ROBOTS_ALLOW_PATH,
+            CHAPTER_DETAIL_API_ROBOTS_ALLOW_PATH,
+        )
+    )
 
 
 def _create_authenticated_search_fetcher(

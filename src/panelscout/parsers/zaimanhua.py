@@ -51,6 +51,38 @@ def parse_search_results(html: str) -> list[Comic]:
     return parser.comics
 
 
+def parse_search_api_response(payload: str | dict[str, object]) -> list[Comic]:
+    """Parse ZaiManHua front-end search JSON into comic metadata records."""
+
+    if isinstance(payload, str):
+        try:
+            document = json.loads(payload)
+        except json.JSONDecodeError as error:
+            raise ParseError("Could not parse ZaiManHua search API JSON") from error
+    else:
+        document = payload
+
+    if not isinstance(document, dict):
+        raise ParseError("ZaiManHua search API payload must be a JSON object")
+    errno = document.get("errno")
+    if errno not in (None, 0, "0"):
+        raise ParseError(f"ZaiManHua search API returned errno {errno}")
+
+    data = document.get("data")
+    items = data.get("list") if isinstance(data, dict) else document.get("list")
+    if not isinstance(items, list):
+        raise ParseError("ZaiManHua search API response did not include a result list")
+
+    comics: list[Comic] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        comic = _comic_from_search_api_item(item)
+        if comic is not None:
+            comics.append(comic)
+    return comics
+
+
 def parse_detail_page(html: str, *, detail_url: str | None = None) -> ParsedComicDetail:
     """Parse public comic details metadata and any visible chapter links."""
 
@@ -295,6 +327,27 @@ def _comic_from_card(card: dict[str, object]) -> Comic | None:
     )
 
 
+def _comic_from_search_api_item(item: dict[str, object]) -> Comic | None:
+    source_comic_id = _api_text(item.get("id")) or _api_text(item.get("comic_id"))
+    title = _api_text(item.get("title"))
+    if not source_comic_id or not title:
+        return None
+
+    return Comic(
+        source=SOURCE_NAME,
+        source_comic_id=source_comic_id,
+        title=title,
+        author=_normalize_author(_api_text(item.get("authors")) or _api_text(item.get("author"))),
+        status=_api_text(item.get("status")),
+        categories=tuple(_api_text_parts(item.get("types"))),
+        tags=tuple(_api_text_parts(item.get("alias_name"))),
+        latest_chapter_title=_api_text(item.get("last_update_chapter_name"))
+        or _api_text(item.get("last_name")),
+        detail_url=build_detail_url(source_comic_id),
+        cover_url=normalize_public_url(_api_text(item.get("cover"))),
+    )
+
+
 def _parse_chapter_links(html: str) -> list[ParsedChapter]:
     parser = _ChapterLinkParser()
     parser.feed(html)
@@ -528,6 +581,13 @@ def _alias_names(comic_info: dict[str, object]) -> list[str]:
         if raw:
             aliases.extend(part for part in re.split(r"[,，/、]", raw) if part)
     return _dedupe_texts(aliases)
+
+
+def _api_text_parts(value: object) -> list[str]:
+    text = _api_text(value)
+    if not text:
+        return []
+    return _dedupe_texts(part for part in re.split(r"[,，/、]", text) if part)
 
 
 def _dedupe_texts(values: object) -> list[str]:

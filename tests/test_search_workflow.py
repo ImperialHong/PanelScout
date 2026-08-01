@@ -56,6 +56,28 @@ class PublicSearchWorkflowTests(unittest.TestCase):
 
         self.assertEqual(fetcher.urls, [])
 
+    def test_search_uses_frontend_json_api_when_available(self):
+        fixture = (FIXTURE_ROOT / "search_api_yuehui.json").read_text(encoding="utf-8")
+        fetcher = FakeJsonFetcher(fixture)
+
+        result = search_public_comics("  约会  ", fetcher)
+
+        self.assertEqual(result.query, "约会")
+        self.assertEqual(
+            result.url,
+            "https://manhua.zaimanhua.com/dynamic/%E7%BA%A6%E4%BC%9A",
+        )
+        self.assertEqual(
+            fetcher.json_urls,
+            [
+                "https://manhua.zaimanhua.com/app/v1/search/index?keyword=%E7%BA%A6%E4%BC%9A&source=0&page=1&size=24"
+            ],
+        )
+        self.assertEqual(fetcher.html_urls, [])
+        self.assertEqual(len(result.comics), 2)
+        self.assertEqual(result.comics[0].source_comic_id, "82936")
+        self.assertEqual(result.comics[0].title, "HIGH不起来的约会")
+
 
 class FakeFetcher:
     def __init__(self, html: str) -> None:
@@ -70,6 +92,26 @@ class FakeFetcher:
             content_type="text/html; charset=utf-8",
             text=self.html,
         )
+
+
+class FakeJsonFetcher:
+    def __init__(self, payload: str) -> None:
+        self.payload = payload
+        self.json_urls: list[str] = []
+        self.html_urls: list[str] = []
+
+    def fetch_json(self, url: str) -> FetchedHtml:
+        self.json_urls.append(url)
+        return FetchedHtml(
+            url=url,
+            status_code=200,
+            content_type="application/json; charset=utf-8",
+            text=self.payload,
+        )
+
+    def fetch_html(self, url: str) -> FetchedHtml:
+        self.html_urls.append(url)
+        raise AssertionError("search should use JSON when fetch_json is available")
 
 
 def repository_record_by_source_id(comics, source_comic_id):
