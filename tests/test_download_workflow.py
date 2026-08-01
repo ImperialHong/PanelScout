@@ -1,4 +1,5 @@
 from pathlib import Path
+from threading import Condition
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -102,6 +103,31 @@ class DownloadWorkflowTests(unittest.TestCase):
         self.assertEqual(result.failed_count, 1)
         self.assertFalse(failed_target.exists())
 
+    def test_saves_public_chapter_images_with_limited_parallel_fetches(self):
+        fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(encoding="utf-8")
+        comic, chapter = _comic_and_chapter()
+        image_fetcher = ConcurrentFakeImageFetcher(expected_active=2)
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = save_public_chapter_download(
+                comic=comic,
+                chapter=chapter,
+                chapter_fetcher=FakeHtmlFetcher({chapter.chapter_url: fixture}),
+                image_fetcher=image_fetcher,
+                download_root=root,
+                permission_note="用户确认该公开章节可用于个人本地归档。",
+                max_image_workers=2,
+            )
+
+        self.assertEqual(result.saved_count, 4)
+        self.assertEqual(result.failed_count, 0)
+        self.assertGreaterEqual(image_fetcher.max_active, 2)
+        self.assertEqual(
+            [item.plan_item.page_number for item in result.items],
+            [1, 2, 3, 4],
+        )
+
     def test_unavailable_download_directory_returns_failed_items(self):
         fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(encoding="utf-8")
         comic, chapter = _comic_and_chapter()
@@ -200,6 +226,31 @@ class FakeImageFetcher:
             content_type=f"image/{extension}",
             content=f"image bytes for {url}".encode("utf-8"),
         )
+
+
+class ConcurrentFakeImageFetcher(FakeImageFetcher):
+    def __init__(self, *, expected_active: int) -> None:
+        super().__init__()
+        self.expected_active = expected_active
+        self.active = 0
+        self.max_active = 0
+        self._condition = Condition()
+
+    def fetch_image(self, url: str) -> FetchedImage:
+        with self._condition:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self._condition.notify_all()
+            self._condition.wait_for(
+                lambda: self.max_active >= self.expected_active,
+                timeout=2,
+            )
+        try:
+            return super().fetch_image(url)
+        finally:
+            with self._condition:
+                self.active -= 1
+                self._condition.notify_all()
 
 
 def _comic_and_chapter():

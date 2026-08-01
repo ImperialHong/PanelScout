@@ -1273,6 +1273,7 @@ def _handle_download_run(args: argparse.Namespace, config) -> int:
             image_fetcher=image_factory(config),
             download_root=download_root,
             permission_note=args.permission_note,
+            max_image_workers=config.download_image_workers,
         )
     except AuthSessionError as error:
         print(f"panelscout: auth download unavailable: {error}", file=sys.stderr)

@@ -16,6 +16,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.download_root, Path.home() / "Downloads")
         self.assertGreaterEqual(config.request_delay_seconds, 1)
         self.assertEqual(config.max_concurrency_per_domain, 1)
+        self.assertEqual(config.download_image_workers, 4)
 
     def test_load_config_applies_path_defaults_from_data_dir(self):
         with TemporaryDirectory() as directory:
@@ -29,6 +30,7 @@ class ConfigTests(unittest.TestCase):
                         f'data_dir = "{data_dir}"',
                         "request_delay_seconds = 1.5",
                         "max_concurrency_per_domain = 2",
+                        "download_image_workers = 6",
                     ]
                 ),
                 encoding="utf-8",
@@ -42,6 +44,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(config.download_root, Path.home() / "Downloads")
         self.assertEqual(config.request_delay_seconds, 1.5)
         self.assertEqual(config.max_concurrency_per_domain, 2)
+        self.assertEqual(config.download_image_workers, 6)
 
     def test_load_config_accepts_custom_download_root(self):
         with TemporaryDirectory() as directory:
@@ -69,6 +72,10 @@ class ConfigTests(unittest.TestCase):
     def test_rejects_aggressive_concurrency(self):
         with self.assertRaisesRegex(ConfigError, "max_concurrency"):
             build_config({"max_concurrency_per_domain": 3})
+
+    def test_rejects_aggressive_download_workers(self):
+        with self.assertRaisesRegex(ConfigError, "download_image_workers"):
+            build_config({"download_image_workers": 9})
 
 
 if __name__ == "__main__":

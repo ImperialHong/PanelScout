@@ -30,6 +30,7 @@ class PanelScoutConfig:
     user_agent: str = DEFAULT_USER_AGENT
     request_delay_seconds: float = 2.0
     max_concurrency_per_domain: int = 1
+    download_image_workers: int = 4
     source: str = "zaimanhua"
     metadata_only: bool = True
 
@@ -164,6 +165,10 @@ def _validate_config(config: PanelScoutConfig) -> None:
         raise ConfigError("max_concurrency_per_domain must be an integer")
     if not 1 <= config.max_concurrency_per_domain <= 2:
         raise ConfigError("max_concurrency_per_domain must be 1 or 2")
+    if not isinstance(config.download_image_workers, int):
+        raise ConfigError("download_image_workers must be an integer")
+    if not 1 <= config.download_image_workers <= 8:
+        raise ConfigError("download_image_workers must be between 1 and 8")
     if not config.metadata_only:
         raise ConfigError("PanelScout MVP 1 must remain metadata_only")
     if not config.user_agent.strip():

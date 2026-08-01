@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -90,6 +91,7 @@ def save_public_chapter_download(
     image_fetcher: Any,
     download_root: str | Path,
     permission_note: str,
+    max_image_workers: int = 1,
 ) -> ChapterDownloadSaveResult:
     """Explicitly save planned public chapter images to local files."""
 
@@ -117,33 +119,17 @@ def save_public_chapter_download(
             ),
         )
 
-    results = []
-    for item in planned.plan.items:
-        if item.action == "skip_existing":
-            results.append(DownloadSaveItemResult(plan_item=item, status="skipped"))
-            continue
-
-        try:
-            fetched = image_fetcher.fetch_image(item.source_url)
-            content = _response_bytes(fetched)
-            item.temporary_path.write_bytes(content)
-            item.temporary_path.replace(item.target_path)
-        except Exception as error:  # noqa: BLE001 - continue saving independent pages.
-            results.append(
-                DownloadSaveItemResult(
-                    plan_item=item,
-                    status="failed",
-                    error=str(error),
-                )
-            )
-            continue
-
-        results.append(
-            DownloadSaveItemResult(
-                plan_item=item,
-                status="saved",
-                bytes_written=len(content),
-            )
+    workers = max(1, int(max_image_workers))
+    if workers == 1:
+        results = [
+            _save_plan_item(item, image_fetcher=image_fetcher)
+            for item in planned.plan.items
+        ]
+    else:
+        results = _save_plan_items_concurrently(
+            planned.plan.items,
+            image_fetcher=image_fetcher,
+            max_workers=workers,
         )
 
     return ChapterDownloadSaveResult(
@@ -151,6 +137,59 @@ def save_public_chapter_download(
         chapter=chapter,
         plan=planned.plan,
         items=tuple(results),
+    )
+
+
+def _save_plan_items_concurrently(
+    items: tuple[DownloadPlanItem, ...],
+    *,
+    image_fetcher: Any,
+    max_workers: int,
+) -> list[DownloadSaveItemResult]:
+    results: list[DownloadSaveItemResult | None] = [None] * len(items)
+    futures = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for index, item in enumerate(items):
+            if item.action == "skip_existing":
+                results[index] = DownloadSaveItemResult(
+                    plan_item=item,
+                    status="skipped",
+                )
+                continue
+            future = executor.submit(_save_plan_item, item, image_fetcher=image_fetcher)
+            futures[future] = index
+
+        for future in as_completed(futures):
+            index = futures[future]
+            results[index] = future.result()
+
+    return [result for result in results if result is not None]
+
+
+def _save_plan_item(
+    item: DownloadPlanItem,
+    *,
+    image_fetcher: Any,
+) -> DownloadSaveItemResult:
+    if item.action == "skip_existing":
+        return DownloadSaveItemResult(plan_item=item, status="skipped")
+
+    try:
+        fetched = image_fetcher.fetch_image(item.source_url)
+        content = _response_bytes(fetched)
+        item.temporary_path.write_bytes(content)
+        item.temporary_path.replace(item.target_path)
+    except Exception as error:  # noqa: BLE001 - continue saving independent pages.
+        return DownloadSaveItemResult(
+            plan_item=item,
+            status="failed",
+            error=str(error),
+        )
+
+    return DownloadSaveItemResult(
+        plan_item=item,
+        status="saved",
+        bytes_written=len(content),
     )
 
 

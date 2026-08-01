@@ -357,6 +357,7 @@ class PanelScoutUiApi:
                 image_fetcher=image_factory(self.config),
                 download_root=download_root,
                 permission_note=permission_note,
+                max_image_workers=self.config.download_image_workers,
             )
         except ValueError as error:
             raise UiApiError(str(error), status_code=400) from error
