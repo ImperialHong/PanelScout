@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -30,6 +30,13 @@ class DownloadSaveItemResult:
     plan_item: DownloadPlanItem
     status: str
     bytes_written: int = 0
+    error: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class _FetchedPlanItem:
+    plan_item: DownloadPlanItem
+    content: bytes | None = None
     error: str | None = None
 
 
@@ -122,7 +129,7 @@ def save_public_chapter_download(
     workers = max(1, int(max_image_workers))
     if workers == 1:
         results = [
-            _save_plan_item(item, image_fetcher=image_fetcher)
+            _save_fetched_plan_item(_fetch_plan_item(item, image_fetcher=image_fetcher))
             for item in planned.plan.items
         ]
     else:
@@ -146,37 +153,60 @@ def _save_plan_items_concurrently(
     image_fetcher: Any,
     max_workers: int,
 ) -> list[DownloadSaveItemResult]:
-    results: list[DownloadSaveItemResult | None] = [None] * len(items)
-    futures = {}
+    fetched_items: list[_FetchedPlanItem | None] = [None] * len(items)
+    futures: list[Any | None] = [None] * len(items)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for index, item in enumerate(items):
             if item.action == "skip_existing":
-                results[index] = DownloadSaveItemResult(
-                    plan_item=item,
-                    status="skipped",
-                )
+                fetched_items[index] = _FetchedPlanItem(plan_item=item)
                 continue
-            future = executor.submit(_save_plan_item, item, image_fetcher=image_fetcher)
-            futures[future] = index
+            futures[index] = executor.submit(
+                _fetch_plan_item,
+                item,
+                image_fetcher=image_fetcher,
+            )
 
-        for future in as_completed(futures):
-            index = futures[future]
-            results[index] = future.result()
+        results = []
+        for index, fetched in enumerate(fetched_items):
+            future = futures[index]
+            if future is not None:
+                fetched = future.result()
+            if fetched is not None:
+                results.append(_save_fetched_plan_item(fetched))
 
-    return [result for result in results if result is not None]
+    return results
 
 
-def _save_plan_item(
+def _fetch_plan_item(
     item: DownloadPlanItem,
     *,
     image_fetcher: Any,
-) -> DownloadSaveItemResult:
+) -> _FetchedPlanItem:
     if item.action == "skip_existing":
-        return DownloadSaveItemResult(plan_item=item, status="skipped")
+        return _FetchedPlanItem(plan_item=item)
 
     try:
         fetched = image_fetcher.fetch_image(item.source_url)
         content = _response_bytes(fetched)
+    except Exception as error:  # noqa: BLE001 - continue saving independent pages.
+        return _FetchedPlanItem(plan_item=item, error=str(error))
+
+    return _FetchedPlanItem(plan_item=item, content=content)
+
+
+def _save_fetched_plan_item(fetched: _FetchedPlanItem) -> DownloadSaveItemResult:
+    item = fetched.plan_item
+    if item.action == "skip_existing":
+        return DownloadSaveItemResult(plan_item=item, status="skipped")
+    if fetched.error is not None:
+        return DownloadSaveItemResult(
+            plan_item=item,
+            status="failed",
+            error=fetched.error,
+        )
+
+    content = fetched.content or b""
+    try:
         item.temporary_path.write_bytes(content)
         item.temporary_path.replace(item.target_path)
     except Exception as error:  # noqa: BLE001 - continue saving independent pages.

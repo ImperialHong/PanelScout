@@ -1,6 +1,7 @@
 from pathlib import Path
 from threading import Condition
 from tempfile import TemporaryDirectory
+import time
 import unittest
 
 from panelscout.crawler import search_public_comics, sync_public_detail
@@ -128,6 +129,44 @@ class DownloadWorkflowTests(unittest.TestCase):
             [1, 2, 3, 4],
         )
 
+    def test_parallel_download_commits_files_in_page_order(self):
+        fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(encoding="utf-8")
+        comic, chapter = _comic_and_chapter()
+        image_fetcher = DelayedFakeImageFetcher(
+            delays_by_name={
+                "001.jpg": 0.12,
+                "002.png": 0.08,
+                "003.png": 0.02,
+                "004.webp": 0,
+            },
+        )
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            result = save_public_chapter_download(
+                comic=comic,
+                chapter=chapter,
+                chapter_fetcher=FakeHtmlFetcher({chapter.chapter_url: fixture}),
+                image_fetcher=image_fetcher,
+                download_root=root,
+                permission_note="用户确认该公开章节可用于个人本地归档。",
+                max_image_workers=4,
+            )
+            saved_paths = [
+                item.plan_item.target_path
+                for item in result.items
+                if item.status == "saved"
+            ]
+            modified_times = [path.stat().st_mtime_ns for path in saved_paths]
+
+        self.assertEqual(result.saved_count, 4)
+        self.assertGreaterEqual(image_fetcher.max_active, 2)
+        self.assertEqual(
+            [path.name for path in saved_paths],
+            ["001.jpg", "002.png", "003.png", "004.webp"],
+        )
+        self.assertEqual(modified_times, sorted(modified_times))
+
     def test_unavailable_download_directory_returns_failed_items(self):
         fixture = (FIXTURE_ROOT / "chapter_15599_1001.html").read_text(encoding="utf-8")
         comic, chapter = _comic_and_chapter()
@@ -246,6 +285,29 @@ class ConcurrentFakeImageFetcher(FakeImageFetcher):
                 timeout=2,
             )
         try:
+            return super().fetch_image(url)
+        finally:
+            with self._condition:
+                self.active -= 1
+                self._condition.notify_all()
+
+
+class DelayedFakeImageFetcher(FakeImageFetcher):
+    def __init__(self, *, delays_by_name: dict[str, float]) -> None:
+        super().__init__()
+        self.delays_by_name = delays_by_name
+        self.active = 0
+        self.max_active = 0
+        self._condition = Condition()
+
+    def fetch_image(self, url: str) -> FetchedImage:
+        with self._condition:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            self._condition.notify_all()
+        try:
+            filename = Path(url.split("?", 1)[0]).name
+            time.sleep(self.delays_by_name.get(filename, 0))
             return super().fetch_image(url)
         finally:
             with self._condition:
